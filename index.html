@@ -92,8 +92,7 @@
   @keyframes float{0%,100%{transform:translateZ(46px) translateY(0)}50%{transform:translateZ(46px) translateY(-6px)}}
   @keyframes floatb{0%,100%{transform:translateZ(30px) translateY(0)}50%{transform:translateZ(30px) translateY(-6px)}}
   /* when WebGL takes over, the DOM mark only reserves space */
-  body.gpu .hr,body.gpu .hrback{opacity:0;transition:opacity .75s ease}
-  body.solid .hr,body.solid .hrback{opacity:1}
+  body.gpu .hr,body.gpu .hrback{visibility:hidden}
 
   .halo{position:absolute;left:50%;top:50%;width:230px;height:230px;z-index:0;
         transform:translate(-50%,-50%) translateZ(-20px);pointer-events:none;
@@ -241,13 +240,11 @@
 var reduce = window.matchMedia && matchMedia('(prefers-reduced-motion:reduce)').matches;
 
 /* ==========================================================================
-   ONE SHOT. CONSTANT SPEED. NEVER STOPS, NEVER MOVES FORWARD.
-   Everything is built out of dots, and every dot is the whole thing before it:
-     a white point  ->  is one module of the QR code
-     the QR code    ->  is one dot of the business card
-     the card       ->  is one dot of the HR mark
-     the HR mark    ->  is the logo standing in the lobby
-   Pure WebGL. No library, no images.
+   ONE SHOT, ONE CONSTANT SPEED, NO STOPS, NO GAPS.
+   white light          -> is one dot of the QR code
+   the QR code (dots)   -> is one dot on the real card
+   the card             -> is one dot of the HR mark
+   the HR mark (dots)   -> settles into place. lobby.
    ========================================================================== */
 var QRB = "1111111001100111111010111111110000010101011011101101000001101110100011000000011010111011011101011110001110010101110110111010111000110011001011101100000100110000010000010000011111111010101010101010111111100000000111000010000000000000010111101010011110101110110101010110100110000111100011000010110110011100010110001001100111111011100100001010110010000111111010110001000110110100100000001001110111100101011101010000100111000001011000100011010100100111111111010011110000101011111100011100100100001111111011011011011111000111001101011101011001010101000000111001001101101100011000011100111110111111010111011111111000000000011010011001110001000011111110001001011111101010110100000101100011001001000110001011101011001101111111111101110111010110000101101010000010101110100011110010110001101111000001010110101001001011110111111110000110001001111110000", QN = 29;
 var cv = document.getElementById('gl'), gl = null;
@@ -256,28 +253,30 @@ try{
     || cv.getContext('experimental-webgl');
 }catch(e){}
 
-/* world unit = one QR module */
-var P1 = QN * 1.34;          // pitch between QR codes inside the card
-var CW = 58, CH = 33;        // the card, measured in QR codes
-var P2 = CW * P1 * 1.22;     // pitch between cards inside the HR mark
+var MOD   = 72.391/QN;                  // card-px per QR module (from the real card)
+var CARDW = 336/MOD, CARDH = 192/MOD;
+var CARDC = [ (168 - 101.315)/MOD, (96 - 102.177)/MOD ];
+var PITCH = CARDW * 1.26;               // spacing of the HR dots: one card each
 
 var PVS = [
 'precision highp float;',
 'attribute vec2 aPos; attribute vec3 aMeta;',
 'uniform vec2 uRes; uniform vec2 uAnchor; uniform float uScale; uniform float uDPR;',
-'uniform vec3 uA; uniform vec2 uTouch; uniform float uTouchOn;',
+'uniform float uTime; uniform vec2 uA; uniform vec2 uTouch; uniform float uTouchOn;',
 'varying float vA; varying float vSeed;',
 'void main(){',
-'  float lvl = aMeta.x, br = aMeta.y, sd = aMeta.z;',
-'  float a     = lvl < 0.5 ? uA.x : (lvl < 1.5 ? uA.y : uA.z);',
-'  float pitch = lvl < 0.5 ? 1.0  : (lvl < 1.5 ? ' + '' + 'PP1 : PP2);',
+'  float lvl = aMeta.x, sd = aMeta.y, sd2 = aMeta.z;',
+'  float a     = lvl < 0.5 ? uA.x : uA.y;',
+'  float pitch = lvl < 0.5 ? 1.0  : PITCHV;',
 '  vec2 sp = uAnchor + aPos * uScale;',
 '  vec2 dd = sp - uTouch;',
-'  sp += normalize(dd + 0.0001) * uTouchOn * smoothstep(110.0, 0.0, length(dd)) * 36.0;',
+'  sp += normalize(dd + 0.0001) * uTouchOn * smoothstep(110.0, 0.0, length(dd)) * 34.0;',
 '  gl_Position = vec4(sp.x/uRes.x*2.0 - 1.0, 1.0 - sp.y/uRes.y*2.0, 0.0, 1.0);',
-'  float mx = lvl < 0.5 ? 200.0 : 60.0;',
-'  gl_PointSize = max(1.0, clamp(pitch * uScale * 0.62, 1.2, mx) * uDPR);',
-'  vA = a * br; vSeed = sd;',
+'  float mx = lvl < 0.5 ? 220.0 : 44.0;',
+'  gl_PointSize = max(1.0, clamp(pitch * uScale * 0.60, 1.15, mx) * uDPR);',
+// the mark breathes: every grain shimmers on its own beat
+'  float live = lvl < 0.5 ? 1.0 : (0.62 + 0.38*sin(uTime*1.7 + sd2*39.0));',
+'  vA = a * live; vSeed = sd;',
 '}'].join('\n');
 
 var PFS = [
@@ -289,10 +288,31 @@ var PFS = [
 '  if(r > 0.5) discard;',
 '  float a = smoothstep(0.5, 0.02, r) * vA;',
 '  if(a < 0.004) discard;',
-'  vec3 col = mix(vec3(0.34,0.60,0.98), vec3(0.85,0.96,1.00), vSeed);',
-'  col = mix(col, vec3(1.0), pow(a, 4.0)*0.65);',
+'  vec3 col = mix(vec3(0.38,0.64,1.00), vec3(0.90,0.98,1.00), vSeed);',
+'  col = mix(col, vec3(1.0), pow(a, 4.0)*0.7);',
 '  gl_FragColor = vec4(col * a, a);',
 '}'].join('\n');
+
+var CVS = [
+'precision highp float;',
+'attribute vec2 aPos; attribute vec2 aUV;',
+'uniform vec2 uRes; uniform vec2 uAnchor; uniform float uScale;',
+'varying vec2 vUV;',
+'void main(){',
+'  vec2 sp = uAnchor + aPos * uScale;',
+'  gl_Position = vec4(sp.x/uRes.x*2.0 - 1.0, 1.0 - sp.y/uRes.y*2.0, 0.0, 1.0);',
+'  vUV = aUV;',
+'}'].join('\n');
+var CFS = [
+'precision highp float;',
+'uniform sampler2D uTex; uniform float uCA;',
+'varying vec2 vUV;',
+'void main(){ vec4 t = texture2D(uTex, vUV); gl_FragColor = vec4(t.rgb*t.a*uCA, t.a*uCA); }'].join('\n');
+
+var WVS = ['precision highp float;','attribute vec2 aQuad;',
+'void main(){ gl_Position = vec4(aQuad, 0.0, 1.0); }'].join('\n');
+var WFS = ['precision highp float;','uniform float uWA;',
+'void main(){ if(uWA < 0.004) discard; gl_FragColor = vec4(vec3(1.0)*uWA, uWA); }'].join('\n');
 
 var SVS = [
 'precision highp float;',
@@ -302,18 +322,16 @@ var SVS = [
 'void main(){',
 '  float y   = (aStk.x*2.0 - 1.0) * uRes.y * 0.58;',
 '  float sgn = aStk.z < 0.5 ? -1.0 : 1.0;',
-'  float d   = fract(aStk.y + uTime * (0.30 + aStk.z*0.85) * (0.20 + uSpeed*1.4));',
+'  float d   = fract(aStk.y + uTime * (0.30 + aStk.z*0.85) * (0.20 + uSpeed*1.3));',
 '  float x   = sgn * d * uRes.x * 0.74;',
-'  float len = uSpeed * (34.0 + aStk.z*280.0) * (0.25 + d*1.3);',
+'  float len = uSpeed * (30.0 + aStk.z*250.0) * (0.25 + d*1.3);',
 '  x += aEnd * len * 0.5 * sgn;',
 '  vec2 sp = uRes*0.5 + vec2(x, y);',
 '  gl_Position = vec4(sp.x/uRes.x*2.0 - 1.0, 1.0 - sp.y/uRes.y*2.0, 0.0, 1.0);',
-'  vA = uSpeed * (0.16 + aStk.z*0.50) * smoothstep(0.0, 0.16, d) * (1.0 - d*0.85);',
+'  vA = uSpeed * (0.14 + aStk.z*0.42) * smoothstep(0.0, 0.16, d) * (1.0 - d*0.85);',
 '}'].join('\n');
-
-var SFS = [
-'precision highp float;','varying float vA;',
-'void main(){ if(vA < 0.004) discard; gl_FragColor = vec4(vec3(0.55,0.82,1.0)*vA, vA); }'].join('\n');
+var SFS = ['precision highp float;','varying float vA;',
+'void main(){ if(vA < 0.004) discard; gl_FragColor = vec4(vec3(0.58,0.84,1.0)*vA, vA); }'].join('\n');
 
 function sh(t2, src){
   var o = gl.createShader(t2); gl.shaderSource(o, src); gl.compileShader(o);
@@ -329,32 +347,32 @@ function link(v, f){
   return p;
 }
 
-/* the card's artwork, sampled coarsely: one sample per QR code */
-function cardCells(){
-  var S = 6, c = document.createElement('canvas');
+/* the real card back — every detail, with the QR window left empty */
+function cardTexture(){
+  var S = 5, c = document.createElement('canvas');
   c.width = 336*S; c.height = 192*S;
   var x = c.getContext('2d'), W2 = c.width, H2 = c.height;
-  x.fillStyle = '#05070c'; x.fillRect(0,0,W2,H2);
+  x.fillStyle = '#000103'; x.fillRect(0,0,W2,H2);
   x.save(); x.translate(W2*0.80, H2*0.30); x.rotate(-Math.PI/4);
   var g1 = x.createLinearGradient(-W2*0.30,0,W2*0.30,0);
-  g1.addColorStop(0,'rgba(1,24,106,0)'); g1.addColorStop(0.35,'rgba(60,130,190,0.85)');
-  g1.addColorStop(0.60,'rgba(180,215,240,1)'); g1.addColorStop(1,'rgba(1,24,106,0)');
+  g1.addColorStop(0,'rgba(1,24,106,0)'); g1.addColorStop(0.34,'rgba(46,106,158,0.85)');
+  g1.addColorStop(0.60,'rgba(150,190,220,0.95)'); g1.addColorStop(1,'rgba(1,24,106,0)');
   x.fillStyle = g1; x.fillRect(-W2*0.30,-H2*1.1,W2*0.60,H2*2.2); x.restore();
   x.save(); x.translate(W2*0.62, H2*0.12); x.rotate(-Math.PI/4);
   var g2 = x.createLinearGradient(0,-H2,0,H2);
-  g2.addColorStop(0,'rgba(120,225,255,0)'); g2.addColorStop(0.5,'rgba(160,235,255,1)');
-  g2.addColorStop(1,'rgba(120,225,255,0)');
-  x.fillStyle = g2; x.fillRect(-2*S,-H2,4*S,H2*2); x.restore();
-  x.textBaseline='middle'; x.textAlign='left'; x.fillStyle='#cfe0ff';
+  g2.addColorStop(0,'rgba(67,209,255,0)'); g2.addColorStop(0.5,'rgba(120,225,255,0.9)');
+  g2.addColorStop(1,'rgba(67,209,255,0)');
+  x.fillStyle = g2; x.fillRect(-1.8*S,-H2,3.6*S,H2*2); x.restore();
+  x.textBaseline='middle'; x.textAlign='left'; x.fillStyle='#84a9ff';
   x.font = '700 ' + (9.16*S) + 'px Poppins, system-ui, sans-serif';
   var msg='SCAN TO SEE WHAT I BUILD', tx=19.2*S, ty=39.3*S, ls=1.44*S, i;
   for(i=0;i<msg.length;i++){ x.fillText(msg[i],tx,ty); tx += x.measureText(msg[i]).width + ls; }
   var g3 = x.createLinearGradient(58*S,0,145*S,0);
-  g3.addColorStop(0,'rgba(1,62,106,0)'); g3.addColorStop(0.35,'rgba(150,230,255,1)');
-  g3.addColorStop(1,'rgba(1,24,106,0)');
-  x.fillStyle=g3; x.fillRect(58*S,53*S,87*S,1.4*S);
+  g3.addColorStop(0,'rgba(1,62,106,0)'); g3.addColorStop(0.32,'rgba(67,209,255,0.95)');
+  g3.addColorStop(0.72,'rgba(65,154,214,0.7)'); g3.addColorStop(1,'rgba(1,24,106,0)');
+  x.fillStyle=g3; x.fillRect(58*S,53*S,87*S,1.2*S);
   x.font = '700 ' + (8*S) + 'px Poppins, system-ui, sans-serif';
-  x.fillStyle = '#cfe0ff';
+  x.fillStyle = '#84a9ff';
   function spaced(txt,cx,cy,sp){
     var w=0,j; for(j=0;j<txt.length;j++) w += x.measureText(txt[j]).width + sp;
     var px = cx - (w-sp)/2;
@@ -362,19 +380,18 @@ function cardCells(){
   }
   spaced('People build companies',104*S,155*S,2.26*S);
   spaced('We build people',101*S,168*S,3.06*S);
-
-  var d = x.getImageData(0,0,W2,H2).data, out = [];
-  for(var r=0; r<CH; r++) for(var q=0; q<CW; q++){
-    var px = Math.floor((q+0.5)/CW*W2), py = Math.floor((r+0.5)/CH*H2);
-    var o = (py*W2+px)*4;
-    var lum = (d[o]*0.3 + d[o+1]*0.6 + d[o+2]*0.1)/255;
-    out.push(q, r, Math.max(0.42, Math.min(1, 0.42 + lum*1.15)));
-  }
-  return out;
+  var tex = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, tex);
+  gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,c);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
+  return tex;
 }
 
 function hrCells(){
-  var GW = 46, c = document.createElement('canvas');
+  var GW = 96, c = document.createElement('canvas');
   c.width = GW; c.height = Math.round(GW*0.60);
   var x = c.getContext('2d');
   x.fillStyle='#fff'; x.textAlign='center'; x.textBaseline='middle';
@@ -388,18 +405,18 @@ function hrCells(){
 }
 
 /* -------------------------------- state -------------------------------- */
-var pProg, sProg, PU={}, SU={}, posBuf, metaBuf, stkBuf, N=0, SN=0;
+var pProg,cProg,wProg,sProg, PU={},CU={},WU={},SU={}, posBuf,metaBuf,cardBuf,quadBuf,stkBuf, cardTex, N=0, SN=0;
 var W=0,H=0,DPR=1, anchor=[0,0], markC=[0,0], t0=performance.now(), raf=null;
 var touch=[-9999,-9999], touchOn=0;
 var markEl = document.querySelector('.hr');
 
-var INTRO = 10.4, TRAVEL = 9.6;
-var S0 = 950, S_END = 0.002, RATE = 1;
-var scale = S0, settle = 0, speed = 0;
-var A = [1,0,0];
+var INTRO = 10.1, TRAVEL = 9.5;
+var S0 = 2600, S_END = 0.008, RATE = 1;
+var scale = S0, settle = 0, speed = 1, whiteA = 1, cA = 0;
+var A = [1,0];
 var skipped = false;
 
-function seg(t,a,b){ return Math.max(0, Math.min(1,(t-a)/(b-a))); }
+function seg(v,a,b){ return Math.max(0, Math.min(1,(v-a)/(b-a))); }
 function smooth(x){ return x*x*(3-2*x); }
 
 function build(){
@@ -411,51 +428,30 @@ function build(){
     if(QRB.charCodeAt(y*QN+x2) === 49) lit.push(x2, y);
   var nLit = lit.length/2;
 
-  var cc = cardCells();                       // [q, r, brightness] * CW*CH
-  var hd = hrCells(), hc = hd.cells, nH = hc.length/2;
-
-  // our QR is the card cell under the real printed QR position
-  var QC = 101.315/336*CW, QR2 = 102.177/192*CH;
-  var myQ = Math.round(QC - 0.5), myR = Math.round(QR2 - 0.5);
-  // card centre, measured from our QR
-  var cardCx = (CW/2 - (myQ+0.5))*P1, cardCy = (CH/2 - (myR+0.5))*P1;
-
-  // our card is the HR cell nearest the middle of the mark
-  var best=0, bd=1e9, cx0=hd.w/2, cy0=hd.h/2, i;
+  var hd = hrCells(), hc = hd.cells, nH = hc.length/2, i;
+  var best=0, bd=1e9, cx0=hd.w/2, cy0=hd.h/2;
   for(i=0;i<nH;i++){
-    var dx=hc[i*2]-cx0, dy=(hc[i*2+1]-cy0)*1.5, dd2=dx*dx+dy*dy;
+    var dx=hc[i*2]-cx0, dy=(hc[i*2+1]-cy0)*1.6, dd2=dx*dx+dy*dy;
     if(dd2<bd){ bd=dd2; best=i; }
   }
   var bx=hc[best*2], by=hc[best*2+1];
 
-  S_END = (r.width*1.26) / (hd.w * P2);
+  var targetW = Math.min(Math.max(window.innerWidth, 320) * 0.58, 250);
+  S_END = targetW / (hd.w * PITCH);
   RATE  = Math.log(S0 / S_END) / TRAVEL;
 
-  var pos=[], meta=[];
-  // level 0 — the QR itself
-  var PER = 26;
+  var pos=[], meta=[], PER = (W*H > 900*900) ? 46 : 34;
   for(i=0;i<nLit;i++) for(var k=0;k<PER;k++){
-    pos.push(lit[i*2] - QN/2 + 0.08 + Math.random()*0.84,
-             lit[i*2+1] - QN/2 + 0.08 + Math.random()*0.84);
-    meta.push(0, 1, Math.random());
+    pos.push(lit[i*2] - QN/2 + 0.06 + Math.random()*0.88,
+             lit[i*2+1] - QN/2 + 0.06 + Math.random()*0.88);
+    meta.push(0, Math.random(), Math.random());
   }
-  // level 1 — the card, drawn out of QR codes
-  for(i=0;i<cc.length/3;i++){
-    var q=cc[i*3], rr=cc[i*3+1], br=cc[i*3+2];
-    if(q===myQ && rr===myR) continue;
-    var wx = (q - myQ)*P1, wy = (rr - myR)*P1;
-    for(var k2=0;k2<3;k2++){
-      pos.push(wx + (Math.random()-0.5)*P1*0.16, wy + (Math.random()-0.5)*P1*0.16);
-      meta.push(1, br, Math.random());
-    }
-  }
-  // level 2 — the mark, drawn out of cards
   for(i=0;i<nH;i++){
     if(i===best) continue;
-    var hx = cardCx + (hc[i*2]-bx)*P2, hy = cardCy + (hc[i*2+1]-by)*P2;
-    for(var k3=0;k3<3;k3++){
-      pos.push(hx + (Math.random()-0.5)*P2*0.10, hy + (Math.random()-0.5)*P2*0.10);
-      meta.push(2, 1, Math.random());
+    var hx = CARDC[0] + (hc[i*2]-bx)*PITCH, hy = CARDC[1] + (hc[i*2+1]-by)*PITCH;
+    for(var k2=0;k2<2;k2++){
+      pos.push(hx + (Math.random()-0.5)*PITCH*0.34, hy + (Math.random()-0.5)*PITCH*0.34);
+      meta.push(1, Math.random(), Math.random());
     }
   }
   N = pos.length/2;
@@ -467,6 +463,11 @@ function build(){
   if(!metaBuf) metaBuf = gl.createBuffer();
   gl.bindBuffer(gl.ARRAY_BUFFER, metaBuf);
   gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(meta), gl.STATIC_DRAW);
+
+  var L2=CARDC[0]-CARDW/2, R2=CARDC[0]+CARDW/2, T2=CARDC[1]-CARDH/2, B2=CARDC[1]+CARDH/2;
+  if(!cardBuf) cardBuf = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, cardBuf);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([L2,T2,0,0, R2,T2,1,0, L2,B2,0,1, R2,B2,1,1]), gl.STATIC_DRAW);
 
   var ST=170, sd=[];
   for(var s2=0;s2<ST;s2++){
@@ -488,21 +489,15 @@ function resize(){
 }
 
 function timeline(t){
-  if(t < TRAVEL){
-    scale = S0 * Math.exp(-RATE * t);          // one constant rate, start to finish
-    speed = 1;
-  } else if(t < INTRO){
-    var k = smooth(seg(t, TRAVEL, INTRO));
-    scale = S_END;
-    speed = 1 - k;
-  } else { scale = S_END; speed = 0; }
-  settle = smooth(seg(t, TRAVEL-1.15, INTRO));
-  // each layer lives only while its own dots are between 1px and a screenful
-  var lo = 1.05, hi0 = H*0.55, hi1 = H*1.20;
-  A[0] = smooth(seg(scale,      lo, 3.2));
-  A[1] = smooth(seg(scale*P1,   lo, 3.2)) * smooth(1 - seg(scale*P1, hi0, hi1));
-  A[2] = smooth(seg(scale*P2,   lo, 3.2)) * smooth(1 - seg(scale*P2, hi0, hi1));
-  A[2] *= (1 - smooth(seg(t, INTRO-0.55, INTRO+0.25)));   // hand over to the real logo
+  if(t < TRAVEL){ scale = S0 * Math.exp(-RATE*t); speed = 1; }
+  else if(t < INTRO){ scale = S_END; speed = 1 - smooth(seg(t, TRAVEL, INTRO)); }
+  else { scale = S_END; speed = 0; }
+  settle = smooth(seg(t, TRAVEL-1.2, INTRO));
+
+  whiteA = smooth(seg(scale, H*0.30, H*1.35));            // the opening: pure white light
+  A[0]   = smooth(seg(scale, 1.0, 3.0));                  // the QR, made of dots
+  A[1]   = smooth(seg(scale*PITCH, 0.45, 1.40)) * smooth(1 - seg(scale*PITCH, H*0.85, H*1.9));
+  cA     = smooth(seg(scale*CARDW, 2.0, 7.0)) * smooth(1 - seg(scale*CARDW, H*5.0, H*11.0));
   anchor = [ W*0.5 + (markC[0]-W*0.5)*settle, H*0.5 + (markC[1]-H*0.5)*settle ];
 }
 
@@ -510,6 +505,22 @@ function frame(){
   var t = (performance.now()-t0)/1000;
   timeline(t);
   gl.clear(gl.COLOR_BUFFER_BIT);
+
+  if(cA > 0.004 && cardTex){
+    gl.useProgram(cProg);
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+    gl.bindBuffer(gl.ARRAY_BUFFER, cardBuf);
+    var LP = gl.getAttribLocation(cProg,'aPos'), LU = gl.getAttribLocation(cProg,'aUV');
+    gl.enableVertexAttribArray(LP); gl.vertexAttribPointer(LP,2,gl.FLOAT,false,16,0);
+    gl.enableVertexAttribArray(LU); gl.vertexAttribPointer(LU,2,gl.FLOAT,false,16,8);
+    gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, cardTex);
+    gl.uniform1i(CU.uTex,0);
+    gl.uniform2f(CU.uRes,W,H); gl.uniform2f(CU.uAnchor,anchor[0],anchor[1]);
+    gl.uniform1f(CU.uScale,scale); gl.uniform1f(CU.uCA,cA);
+    gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
+    gl.disableVertexAttribArray(LP); gl.disableVertexAttribArray(LU);
+  }
+
   gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
 
   if(speed > 0.01){
@@ -530,10 +541,20 @@ function frame(){
   gl.bindBuffer(gl.ARRAY_BUFFER, metaBuf);
   gl.enableVertexAttribArray(LM); gl.vertexAttribPointer(LM,3,gl.FLOAT,false,0,0);
   gl.uniform2f(PU.uRes,W,H); gl.uniform2f(PU.uAnchor,anchor[0],anchor[1]);
-  gl.uniform1f(PU.uScale,scale); gl.uniform1f(PU.uDPR,DPR);
-  gl.uniform3f(PU.uA, A[0], A[1], A[2]);
+  gl.uniform1f(PU.uScale,scale); gl.uniform1f(PU.uDPR,DPR); gl.uniform1f(PU.uTime,t);
+  gl.uniform2f(PU.uA, A[0], A[1]);
   gl.uniform2f(PU.uTouch,touch[0],touch[1]); gl.uniform1f(PU.uTouchOn,touchOn);
   gl.drawArrays(gl.POINTS,0,N);
+
+  if(whiteA > 0.004){
+    gl.useProgram(wProg);
+    gl.bindBuffer(gl.ARRAY_BUFFER, quadBuf);
+    var LQ = gl.getAttribLocation(wProg,'aQuad');
+    gl.enableVertexAttribArray(LQ); gl.vertexAttribPointer(LQ,2,gl.FLOAT,false,0,0);
+    gl.uniform1f(WU.uWA, whiteA);
+    gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
+    gl.disableVertexAttribArray(LQ);
+  }
 
   touchOn *= 0.94;
   raf = requestAnimationFrame(frame);
@@ -545,32 +566,38 @@ function doSkip(){
   t0 = performance.now() - INTRO*1000;
   document.body.classList.add('skipped');
   document.body.classList.add('arrived');
-  document.body.classList.add('solid');
   var st = document.querySelector('.stage'); if(st) st.classList.remove('pre');
-  scale = S_END; settle = 1; speed = 0;
+  scale = S_END; settle = 1; speed = 0; whiteA = 0; cA = 0;
 }
 var skipBtn = document.getElementById('skip');
 if(skipBtn) skipBtn.addEventListener('click', doSkip);
 
 if(gl && !reduce){
   try{
-    pProg = link(PVS.replace('PP1', String(P1)).replace('PP2', String(P2)), PFS);
+    pProg = link(PVS.replace('PITCHV', String(PITCH)), PFS);
+    cProg = link(CVS, CFS);
+    wProg = link(WVS, WFS);
     sProg = link(SVS, SFS);
-    ['uRes','uAnchor','uScale','uDPR','uA','uTouch','uTouchOn']
+    ['uRes','uAnchor','uScale','uDPR','uTime','uA','uTouch','uTouchOn']
       .forEach(function(k){ PU[k] = gl.getUniformLocation(pProg,k); });
+    ['uRes','uAnchor','uScale','uTex','uCA'].forEach(function(k){ CU[k] = gl.getUniformLocation(cProg,k); });
+    WU.uWA = gl.getUniformLocation(wProg,'uWA');
     ['uRes','uTime','uSpeed'].forEach(function(k){ SU[k] = gl.getUniformLocation(sProg,k); });
+    quadBuf = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, quadBuf);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 1,-1, -1,1, 1,1]), gl.STATIC_DRAW);
     gl.disable(gl.DEPTH_TEST); gl.enable(gl.BLEND); gl.clearColor(0,0,0,0);
 
     var go = function(){
       document.body.classList.add('gpu');
       resize();
+      cardTex = cardTexture();
       cv.classList.add('on');
       t0 = performance.now();
       requestAnimationFrame(function(){
         var st = document.querySelector('.stage'); if(st) st.classList.remove('pre');
         document.body.classList.add('go');
       });
-      setTimeout(function(){ document.body.classList.add('solid'); }, (INTRO-0.55)*1000);
       setTimeout(function(){ document.body.classList.add('arrived'); }, INTRO*1000 + 300);
       frame();
     };
