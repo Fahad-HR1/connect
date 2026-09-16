@@ -54,7 +54,7 @@
   /* the camera pull-back : everything rushes back into place on load */
   .stage{width:100%;display:flex;flex-direction:column;align-items:center;flex:1;
          transform-style:preserve-3d;
-         animation:pullback 10.2s cubic-bezier(.10,.62,.10,1) both}
+         animation:pullback 10.0s cubic-bezier(.10,.62,.10,1) both}
   .stage.pre{animation:none;opacity:0}
   @keyframes pullback{
     0%  {opacity:0; filter:blur(30px); transform:scale(4.2)  translateY(110px) rotate(7deg)}
@@ -65,13 +65,13 @@
   /* impact beat when the letters lock in */
   .flash{position:fixed;inset:0;z-index:3;pointer-events:none;background:#bfeaff;
          opacity:0;mix-blend-mode:screen}
-  body.go .flash{animation:flash 1.2s ease-out 9.10s both}
+  body.go .flash{animation:flash 1.0s ease-out 8.95s both}
   @keyframes flash{0%{opacity:0}16%{opacity:.17}100%{opacity:0}}
   .wave{position:fixed;left:50%;top:26%;z-index:3;pointer-events:none;
         width:26px;height:26px;margin:-13px 0 0 -13px;border-radius:50%;
         border:2px solid rgba(127,211,245,.9);opacity:0}
-  body.go .wave{animation:wave 1.8s cubic-bezier(.16,1,.3,1) 9.15s both}
-  body.go .wave.b{animation-delay:9.35s;border-color:rgba(132,169,255,.6)}
+  body.go .wave{animation:wave 1.6s cubic-bezier(.16,1,.3,1) 9.00s both}
+  body.go .wave.b{animation-delay:9.18s;border-color:rgba(132,169,255,.6)}
   @keyframes wave{
     0%{opacity:.95; transform:scale(.2)}
     100%{opacity:0; transform:scale(34)}
@@ -240,12 +240,11 @@
 var reduce = window.matchMedia && matchMedia('(prefers-reduced-motion:reduce)').matches;
 
 /* ==========================================================================
-   ONE UNBROKEN SHOT — nothing morphs, nothing pops.
-   A spark of light resolves into Fahad's QR code; the code is sitting on his
-   business card; the card is lying on the ground; the ground is a planet;
-   the planet falls away to a star; the camera settles in the lobby.
-   Everything exists from frame one. The camera simply keeps pulling back.
-   Pure WebGL. No library, no images, no video.
+   ONE CONTINUOUS PULL-BACK. The camera never moves forward.
+   a glow  ->  it was one module of the QR  ->  the QR  ->  the card it is
+   printed on  ->  the card was one dot of the HR mark  ->  HR  ->  the lobby
+   Everything exists from frame one, at its own fixed size, in one world.
+   Pure WebGL. No library, no images.
    ========================================================================== */
 var QRB = "1111111001100111111010111111110000010101011011101101000001101110100011000000011010111011011101011110001110010101110110111010111000110011001011101100000100110000010000010000011111111010101010101010111111100000000111000010000000000000010111101010011110101110110101010110100110000111100011000010110110011100010110001001100111111011100100001010110010000111111010110001000110110100100000001001110111100101011101010000100111000001011000100011010100100111111111010011110000101011111100011100100100001111111011011011011111000111001101011101011001010101000000111001001101101100011000011100111110111111010111011111111000000000011010011001110001000011111110001001011111101010110100000101100011001001000110001011101011001101111111111101110111010110000101101010000010101110100011110010110001101111000001010110101001001011110111111110000110001001111110000", QN = 29;
 var cv = document.getElementById('gl'), gl = null;
@@ -254,68 +253,82 @@ try{
     || cv.getContext('experimental-webgl');
 }catch(e){}
 
-/* ---- world units = one QR module.  measured off the real printed card ---- */
-var MOD   = 72.391/QN;                 // card-px per module, from the Canva file
-var CARDW = 336 / MOD, CARDH = 192 / MOD;
-var CARDC = [ (168 - 101.315)/MOD, (96 - 102.177)/MOD ];   // card centre, QR at origin
-var RW    = 60000;                                          // planet radius, in modules
+/* world unit = one QR module, measured off the real printed card */
+var MOD   = 72.391/QN;
+var CARDW = 336/MOD, CARDH = 192/MOD;
+var CARDC = [ (168 - 101.315)/MOD, (96 - 102.177)/MOD ];
+var SPACING = CARDW * 1.42;             // one HR dot per card, with a gap
 
 /* ------------------------------ particles ------------------------------ */
 var PVS = [
 'precision highp float;',
-'attribute vec2 aQR; attribute vec3 aStar; attribute vec3 aSeed;',
-'uniform vec2 uRes; uniform vec2 uAnchor; uniform float uTime;',
-'uniform float uScale; uniform float uRoll; uniform float uQRA; uniform float uDPR;',
+'attribute vec2 aQR; attribute vec2 aHR; attribute vec3 aSeed;',
+'uniform vec2 uRes; uniform vec2 uAnchor; uniform float uScale;',
+'uniform float uQRA; uniform float uHRA; uniform float uDPR; uniform float uTime;',
 'uniform vec2 uTouch; uniform float uTouchOn;',
-'varying float vA; varying float vSeed; varying float vNear;',
+'varying float vA; varying float vSeed;',
 'void main(){',
-'  float s1 = aSeed.x, s2 = aSeed.y, s3 = aSeed.z;',
-'  float amb = step(0.58, s3);',
-'  vec2 rel; float a;',
-'  if(amb > 0.5){',
-'    float k = 1.0 / (1.0 + (0.35 + s1*2.2)*0.55);',
-'    rel  = (aStar.xy - uRes*0.5) * (0.55 + k*0.85);',
-'    rel += vec2(sin(uTime*0.15 + s1*20.0), cos(uTime*0.12 + s2*17.0)) * 12.0;',
-'    a = 0.26 + s2*0.52; vNear = k;',
-'  } else {',
-'    rel = aQR * uScale; a = uQRA; vNear = 1.0;',
-'  }',
-'  float cr = cos(uRoll), sr = sin(uRoll);',
-'  rel = vec2(rel.x*cr - rel.y*sr, rel.x*sr + rel.y*cr);',
-'  vec2 sp = (amb > 0.5 ? uRes*0.5 : uAnchor) + rel;',
+'  float s2 = aSeed.y, s3 = aSeed.z;',
+'  float isHR = step(0.5, s3);',
+'  vec2 w = isHR > 0.5 ? aHR : aQR;',
+'  float a = isHR > 0.5 ? uHRA : uQRA;',
+'  vec2 sp = uAnchor + w * uScale;',
 '  vec2 dd = sp - uTouch;',
-'  sp += normalize(dd + 0.0001) * uTouchOn * smoothstep(120.0, 0.0, length(dd)) * 40.0;',
+'  sp += normalize(dd + 0.0001) * uTouchOn * smoothstep(110.0, 0.0, length(dd)) * 38.0;',
 '  gl_Position = vec4(sp.x/uRes.x*2.0 - 1.0, 1.0 - sp.y/uRes.y*2.0, 0.0, 1.0);',
-'  float sz = amb > 0.5 ? (1.1 + s2*1.5) : clamp(uScale*0.50, 1.3, 14.0);',
+'  float sz = isHR > 0.5 ? (1.6 + s2*1.6) : clamp(uScale*0.55, 1.3, 16.0);',
 '  gl_PointSize = max(1.0, sz * uDPR);',
 '  vA = a; vSeed = s2;',
 '}'].join('\n');
 
 var PFS = [
 'precision highp float;',
-'varying float vA; varying float vSeed; varying float vNear;',
+'varying float vA; varying float vSeed;',
 'void main(){',
 '  vec2 uv = gl_PointCoord - 0.5;',
 '  float r = length(uv);',
 '  if(r > 0.5) discard;',
 '  float a = smoothstep(0.5, 0.05, r) * vA;',
 '  if(a < 0.004) discard;',
-'  vec3 col = mix(vec3(0.26,0.52,0.94), vec3(0.76,0.94,1.00), vNear*0.65 + vSeed*0.35);',
+'  vec3 col = mix(vec3(0.30,0.56,0.96), vec3(0.80,0.95,1.00), vSeed);',
 '  col = mix(col, vec3(1.0), pow(a, 5.0)*0.6);',
 '  gl_FragColor = vec4(col * a, a);',
+'}'].join('\n');
+
+/* ---------------------- speed streaks (horizontal) --------------------- */
+var SVS = [
+'precision highp float;',
+'attribute vec3 aStk; attribute float aEnd;',
+'uniform vec2 uRes; uniform float uTime; uniform float uSpeed;',
+'varying float vA;',
+'void main(){',
+'  float y   = (aStk.x*2.0 - 1.0) * uRes.y * 0.56;',
+'  float sgn = aStk.z < 0.5 ? -1.0 : 1.0;',
+'  float d   = fract(aStk.y + uTime * (0.35 + aStk.z*0.9) * (0.15 + uSpeed*1.5));',
+'  float x   = sgn * d * uRes.x * 0.72;',
+'  float len = uSpeed * (30.0 + aStk.z*260.0) * (0.25 + d*1.2);',
+'  x += aEnd * len * 0.5 * sgn;',
+'  vec2 sp = uRes*0.5 + vec2(x, y);',
+'  gl_Position = vec4(sp.x/uRes.x*2.0 - 1.0, 1.0 - sp.y/uRes.y*2.0, 0.0, 1.0);',
+'  vA = uSpeed * (0.18 + aStk.z*0.55) * smoothstep(0.0, 0.18, d) * (1.0 - d*0.85);',
+'}'].join('\n');
+
+var SFS = [
+'precision highp float;',
+'varying float vA;',
+'void main(){',
+'  if(vA < 0.004) discard;',
+'  gl_FragColor = vec4(vec3(0.55, 0.82, 1.0) * vA, vA);',
 '}'].join('\n');
 
 /* -------------------------------- card --------------------------------- */
 var CVS = [
 'precision highp float;',
 'attribute vec2 aPos; attribute vec2 aUV;',
-'uniform vec2 uRes; uniform vec2 uAnchor; uniform float uScale; uniform float uRoll;',
+'uniform vec2 uRes; uniform vec2 uAnchor; uniform float uScale;',
 'varying vec2 vUV;',
 'void main(){',
-'  vec2 rel = aPos * uScale;',
-'  float cr = cos(uRoll), sr = sin(uRoll);',
-'  rel = vec2(rel.x*cr - rel.y*sr, rel.x*sr + rel.y*cr);',
-'  vec2 sp = uAnchor + rel;',
+'  vec2 sp = uAnchor + aPos * uScale;',
 '  gl_Position = vec4(sp.x/uRes.x*2.0 - 1.0, 1.0 - sp.y/uRes.y*2.0, 0.0, 1.0);',
 '  vUV = aUV;',
 '}'].join('\n');
@@ -327,51 +340,6 @@ var CFS = [
 'void main(){',
 '  vec4 t = texture2D(uTex, vUV);',
 '  gl_FragColor = vec4(t.rgb * t.a * uCA, t.a * uCA);',
-'}'].join('\n');
-
-/* -------------------------------- planet ------------------------------- */
-var GVS = ['precision highp float;','attribute vec2 aQuad;',
-'void main(){ gl_Position = vec4(aQuad, 0.0, 1.0); }'].join('\n');
-
-var GFS = [
-'precision highp float;',
-'uniform vec2 uResPx; uniform float uDPR; uniform vec2 uPC; uniform float uPR;',
-'uniform float uTime; uniform float uPA;',
-'float hash(vec3 p){ return fract(sin(dot(p, vec3(127.1,311.7,74.7)))*43758.5453); }',
-'float vn(vec3 p){',
-'  vec3 i = floor(p), f = fract(p); f = f*f*(3.0-2.0*f);',
-'  float a = mix(mix(hash(i), hash(i+vec3(1.,0.,0.)), f.x), mix(hash(i+vec3(0.,1.,0.)), hash(i+vec3(1.,1.,0.)), f.x), f.y);',
-'  float b = mix(mix(hash(i+vec3(0.,0.,1.)), hash(i+vec3(1.,0.,1.)), f.x), mix(hash(i+vec3(0.,1.,1.)), hash(i+vec3(1.,1.,1.)), f.x), f.y);',
-'  return mix(a, b, f.z);',
-'}',
-'float fbm(vec3 p){ float a=0.5, s=0.0; for(int i=0;i<4;i++){ s+=a*vn(p); p*=2.03; a*=0.5; } return s; }',
-'void main(){',
-'  vec2 sc = vec2(gl_FragCoord.x, uResPx.y - gl_FragCoord.y) / uDPR;',
-'  vec2 vP = (sc - uPC) / uPR;',
-'  float r2 = dot(vP, vP);',
-'  vec3 L = normalize(vec3(0.55, -0.34, 0.76));',
-'  if(r2 > 1.0){',
-'    float d = sqrt(r2);',
-'    float a = exp(-(d - 1.0) * 7.0) * (0.15 + max(dot(normalize(vec3(vP, 0.02)), L), 0.0)*0.60) * uPA;',
-'    if(a < 0.004) discard;',
-'    gl_FragColor = vec4(vec3(0.30, 0.60, 1.0) * a, a);',
-'    return;',
-'  }',
-'  vec3 n = vec3(vP, sqrt(max(0.0, 1.0 - r2)));',
-'  float spn = uTime * 0.05, cs = cos(spn), sn = sin(spn);',
-'  vec3 q = vec3(n.x*cs + n.z*sn, n.y, -n.x*sn + n.z*cs);',
-'  float isLand = smoothstep(0.470, 0.545, fbm(q*2.1 + 9.4));',
-'  vec3 base = mix(mix(vec3(0.010,0.055,0.170), vec3(0.020,0.120,0.290), fbm(q*4.5)),',
-'                  mix(vec3(0.055,0.150,0.105), vec3(0.185,0.230,0.140), fbm(q*7.0)), isLand);',
-'  float dif = max(dot(n, L), 0.0);',
-'  float night = smoothstep(0.14, -0.08, dot(n, L));',
-'  float city = smoothstep(0.600, 0.735, fbm(q*26.0)) * isLand * night;',
-'  vec3 col = base * (0.05 + dif*1.22);',
-'  col += vec3(1.0, 0.74, 0.40) * city * 1.9;',
-'  float cl = smoothstep(0.545, 0.760, fbm(q*3.2 + vec3(uTime*0.012, 0.0, 0.0)));',
-'  col = mix(col, vec3(0.90,0.94,1.0) * (0.10 + dif*0.95), cl*0.52);',
-'  col += vec3(0.28, 0.58, 1.0) * pow(r2, 7.0) * (0.22 + dif*0.85);',
-'  gl_FragColor = vec4(col * uPA, uPA);',
 '}'].join('\n');
 
 function sh(t2, src){
@@ -388,61 +356,43 @@ function link(v, f){
   return p;
 }
 
-/* ------------- the card back, drawn to a texture (QR left out) ---------- */
 function cardTexture(){
   var S = 4, c = document.createElement('canvas');
   c.width = 336*S; c.height = 192*S;
   var x = c.getContext('2d'), W2 = c.width, H2 = c.height;
   x.fillStyle = '#000103'; x.fillRect(0,0,W2,H2);
-  // the diagonal light panel on the right, as on the printed card
-  x.save();
-  x.translate(W2*0.80, H2*0.30); x.rotate(-Math.PI/4);
+  x.save(); x.translate(W2*0.80, H2*0.30); x.rotate(-Math.PI/4);
   var g1 = x.createLinearGradient(-W2*0.30, 0, W2*0.30, 0);
-  g1.addColorStop(0,   'rgba(1,24,106,0)');
-  g1.addColorStop(0.35,'rgba(46,106,158,0.85)');
-  g1.addColorStop(0.60,'rgba(143,184,214,0.95)');
-  g1.addColorStop(1,   'rgba(1,24,106,0)');
-  x.fillStyle = g1; x.fillRect(-W2*0.30, -H2*1.1, W2*0.60, H2*2.2);
-  x.restore();
-  x.save();
-  x.translate(W2*0.62, H2*0.12); x.rotate(-Math.PI/4);
-  var g2 = x.createLinearGradient(0,-H2, 0, H2);
-  g2.addColorStop(0,'rgba(67,209,255,0)');
-  g2.addColorStop(0.5,'rgba(67,209,255,0.75)');
+  g1.addColorStop(0,'rgba(1,24,106,0)'); g1.addColorStop(0.35,'rgba(46,106,158,0.80)');
+  g1.addColorStop(0.60,'rgba(143,184,214,0.92)'); g1.addColorStop(1,'rgba(1,24,106,0)');
+  x.fillStyle = g1; x.fillRect(-W2*0.30, -H2*1.1, W2*0.60, H2*2.2); x.restore();
+  x.save(); x.translate(W2*0.62, H2*0.12); x.rotate(-Math.PI/4);
+  var g2 = x.createLinearGradient(0,-H2,0,H2);
+  g2.addColorStop(0,'rgba(67,209,255,0)'); g2.addColorStop(0.5,'rgba(67,209,255,0.75)');
   g2.addColorStop(1,'rgba(67,209,255,0)');
-  x.fillStyle = g2; x.fillRect(-1.5*S, -H2, 3*S, H2*2);
-  x.restore();
-  // "SCAN TO SEE WHAT I BUILD"
-  x.textBaseline = 'middle'; x.textAlign = 'left';
-  x.fillStyle = '#84a9ff';
+  x.fillStyle = g2; x.fillRect(-1.5*S, -H2, 3*S, H2*2); x.restore();
+  x.textBaseline = 'middle'; x.fillStyle = '#84a9ff';
   var fs = 9.16*S;
   x.font = '700 ' + fs + 'px Poppins, system-ui, sans-serif';
   var msg = 'SCAN TO SEE WHAT I BUILD', tx = 19.2*S, ty = 39.3*S, ls = 1.44*S, i;
-  for(i=0; i<msg.length; i++){ x.fillText(msg[i], tx, ty); tx += x.measureText(msg[i]).width + ls; }
-  // hairline
-  var g3 = x.createLinearGradient(58*S, 0, 145*S, 0);
+  x.textAlign = 'left';
+  for(i=0;i<msg.length;i++){ x.fillText(msg[i], tx, ty); tx += x.measureText(msg[i]).width + ls; }
+  var g3 = x.createLinearGradient(58*S,0,145*S,0);
   g3.addColorStop(0,'rgba(1,62,106,0)'); g3.addColorStop(0.3,'rgba(67,209,255,0.9)');
   g3.addColorStop(0.7,'rgba(65,154,214,0.7)'); g3.addColorStop(1,'rgba(1,24,106,0)');
   x.fillStyle = g3; x.fillRect(58*S, 53*S, 87*S, 1.1*S);
-  // the line under the code
-  x.textAlign = 'center';
-  var f2 = 8*S;
-  x.font = '700 ' + f2 + 'px Poppins, system-ui, sans-serif';
+  x.font = '700 ' + (8*S) + 'px Poppins, system-ui, sans-serif';
+  x.fillStyle = '#84a9ff';
   function spaced(txt, cx, cy, sp){
     var w = 0, j;
     for(j=0;j<txt.length;j++) w += x.measureText(txt[j]).width + sp;
     var px = cx - (w - sp)/2;
-    x.textAlign = 'left';
     for(j=0;j<txt.length;j++){ x.fillText(txt[j], px, cy); px += x.measureText(txt[j]).width + sp; }
-    x.textAlign = 'center';
   }
-  x.fillStyle = '#84a9ff';
   spaced('People build companies', 104*S, 155*S, 2.26*S);
   spaced('We build people',        101*S, 168*S, 3.06*S);
-
   var tex = gl.createTexture();
   gl.bindTexture(gl.TEXTURE_2D, tex);
-  gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
   gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, c);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
@@ -451,21 +401,35 @@ function cardTexture(){
   return tex;
 }
 
+/* HR as a coarse grid of dots — every dot is one card */
+function hrDots(){
+  var GW = 46, c = document.createElement('canvas');
+  c.width = GW; c.height = Math.round(GW*0.62);
+  var x = c.getContext('2d');
+  x.fillStyle = '#fff'; x.textAlign = 'center'; x.textBaseline = 'middle';
+  var fs = Math.round(c.height*0.98);
+  x.font = '700 ' + fs + 'px Poppins, system-ui, sans-serif';
+  x.fillText('HR', c.width/2, c.height/2 + fs*0.02);
+  var d = x.getImageData(0,0,c.width,c.height).data, cells = [];
+  for(var yy=0; yy<c.height; yy++) for(var xx=0; xx<c.width; xx++)
+    if(d[(yy*c.width+xx)*4+3] > 120) cells.push(xx, yy);
+  return { cells: cells, w: c.width, h: c.height };
+}
+
 /* -------------------------------- state -------------------------------- */
-var pProg, cProg, gProg, PU={}, CU={}, GU={}, buf={}, quadBuf, cardBuf, cardTex, N=0;
+var pProg, cProg, sProg, PU={}, CU={}, SU={}, buf={}, cardBuf, stkBuf, cardTex, N=0, SN=0;
 var W=0, H=0, DPR=1, anchor=[0,0], markC=[0,0], t0=performance.now(), raf=null;
 var touch=[-9999,-9999], touchOn=0;
 var markEl = document.querySelector('.hr');
 
-var INTRO = 10.2;
-var scale = 0.85, roll = 0.30, qrA = 0, cA = 0, pA = 0, pR = 1e9, settle = 0;
+var INTRO = 10.0;
+var scale = 0, qrA = 0, hrA = 0, cA = 0, settle = 0, speed = 0, lastLn = null, lastT = 0;
+var S0 = 1100, S_QR = 11.6, S_CARD = 2.45, S_HRFULL = 0.045, S_END = 0.021;
 var skipped = false;
 
 function seg(t,a,b){ return Math.max(0, Math.min(1, (t-a)/(b-a))); }
 function smooth(x){ return x*x*(3-2*x); }
-function outQuint(x){ return 1 - Math.pow(1-x, 5); }
-
-var S_IN = 0.85, S_CODE = 13.0, S_END = 0.00090;
+function lerpLog(a,b,k){ return Math.exp(Math.log(a)*(1-k) + Math.log(b)*k); }
 
 function build(){
   var r = markEl.getBoundingClientRect();
@@ -476,14 +440,28 @@ function build(){
     if(QRB.charCodeAt(y*QN+x) === 49) lit.push(x, y);
   var nLit = lit.length/2;
 
-  var MAX = (W*H > 900*900) ? 22000 : 14000;
-  var qr = [], star = [], seed = [];
+  var hd = hrDots(), cells = hd.cells, nC = cells.length/2;
+  // the card is one specific dot — pick the one nearest the middle of the mark
+  var best = 0, bd = 1e9, cx0 = hd.w/2, cy0 = hd.h/2;
+  for(var i2=0; i2<nC; i2++){
+    var dx = cells[i2*2]-cx0, dy = cells[i2*2+1]-cy0, dd2 = dx*dx+dy*dy*2.2;
+    if(dd2 < bd){ bd = dd2; best = i2; }
+  }
+  var bx = cells[best*2], by = cells[best*2+1];
+  // final scale so the finished mark matches the page logo
+  S_END = (r.width*1.24) / (hd.w * SPACING);
+  S_HRFULL = Math.min(0.0455, S_END*2.1);
+
+  var MAX = (W*H > 900*900) ? 20000 : 13000;
+  var qr = [], hr = [], seed = [];
   for(var i=0; i<MAX; i++){
     var li = (i % nLit)*2;
     qr.push(lit[li]   - QN/2 + 0.10 + Math.random()*0.80,
             lit[li+1] - QN/2 + 0.10 + Math.random()*0.80);
-    star.push((Math.random()*2.2-0.6)*W, (Math.random()*2.2-0.6)*H, 0);
-    seed.push(Math.random(), Math.random(), Math.random());
+    var ci = (i % nC)*2;
+    hr.push(CARDC[0] + (cells[ci]   - bx) * SPACING + (Math.random()-0.5)*SPACING*0.05,
+            CARDC[1] + (cells[ci+1] - by) * SPACING + (Math.random()-0.5)*SPACING*0.05);
+    seed.push(Math.random(), Math.random(), i % 2);
   }
   N = MAX;
 
@@ -494,17 +472,23 @@ function build(){
     gl.bindBuffer(gl.ARRAY_BUFFER, buf[name]);
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(arr), gl.STATIC_DRAW);
   }
-  up('aQR', qr, 2); up('aStar', star, 3); up('aSeed', seed, 3);
+  up('aQR', qr, 2); up('aHR', hr, 2); up('aSeed', seed, 3);
 
-  // card quad, in module units, positioned so the QR lands exactly in its slot
-  var L2 = CARDC[0] - CARDW/2, R2 = CARDC[0] + CARDW/2;
-  var T2 = CARDC[1] - CARDH/2, B2 = CARDC[1] + CARDH/2;
-  var cd = new Float32Array([
-    L2,T2, 0,0,   R2,T2, 1,0,   L2,B2, 0,1,   R2,B2, 1,1
-  ]);
+  var L2 = CARDC[0]-CARDW/2, R2 = CARDC[0]+CARDW/2, T2 = CARDC[1]-CARDH/2, B2 = CARDC[1]+CARDH/2;
   if(!cardBuf) cardBuf = gl.createBuffer();
   gl.bindBuffer(gl.ARRAY_BUFFER, cardBuf);
-  gl.bufferData(gl.ARRAY_BUFFER, cd, gl.STATIC_DRAW);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([L2,T2,0,0, R2,T2,1,0, L2,B2,0,1, R2,B2,1,1]), gl.STATIC_DRAW);
+
+  // streaks
+  var ST = 170, sd = [];
+  for(var k=0; k<ST; k++){
+    var yy = Math.random(), ph = Math.random(), sg = Math.random();
+    sd.push(yy, ph, sg, -1,  yy, ph, sg, 1);
+  }
+  SN = ST*2;
+  if(!stkBuf) stkBuf = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, stkBuf);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(sd), gl.STATIC_DRAW);
 }
 
 function resize(){
@@ -517,28 +501,25 @@ function resize(){
 
 function timeline(t){
   if(t < INTRO){
-    if(t < 1.45){
-      scale = S_IN * Math.pow(S_CODE/S_IN, outQuint(seg(t, 0.0, 1.45)));
-    } else if(t < 2.05){
-      scale = S_CODE;
-    } else {
-      var e = seg(t, 2.05, 9.30);
-      scale = S_CODE * Math.pow(S_END/S_CODE, e*e*(3-2*e));
-    }
-    roll   = 0.30 * Math.max(0, 1 - seg(t, 0.3, 4.6));
+    if(t < 2.20)      scale = lerpLog(S0, S_QR, smooth(seg(t, 0.00, 2.20)));
+    else if(t < 2.85) scale = S_QR;
+    else if(t < 4.35) scale = lerpLog(S_QR, S_CARD, smooth(seg(t, 2.85, 4.35)));
+    else if(t < 5.05) scale = S_CARD;
+    else if(t < 8.05) scale = lerpLog(S_CARD, S_HRFULL, smooth(seg(t, 5.05, 8.05)));
+    else if(t < 8.70) scale = S_HRFULL;
+    else              scale = lerpLog(S_HRFULL, S_END, smooth(seg(t, 8.70, 9.95)));
     settle = smooth(seg(t, 8.60, 9.95));
   } else {
-    scale += (S_END - scale)*0.08; roll *= 0.93; settle += (1-settle)*0.1;
+    scale += (S_END - scale)*0.08; settle += (1-settle)*0.1;
   }
-  qrA = smooth(seg(scale, 0.055, 0.42));
-  cA  = smooth(seg(scale, 0.0012, 0.02)) * smooth(1 - seg(scale, 4.2, 9.5));
-  pR  = RW * scale;
-  pA  = smooth(1 - seg(pR, 3600, 13000));
-  // as the code shrinks, the camera drifts to frame the whole card
-  var fr = smooth(1 - seg(scale, 1.1, 5.5));
-  var ox = -CARDC[0]*scale*fr, oy = -CARDC[1]*scale*fr;
-  anchor = [ W*0.5 + ox + (markC[0]-W*0.5)*settle,
-             H*0.5 + oy + (markC[1]-H*0.5)*settle ];
+  var ln = Math.log(scale), dt = Math.max(0.001, t - lastT);
+  if(lastLn !== null) speed = Math.max(0, Math.min(1, ((lastLn - ln)/dt) / 1.7))*0.85 + speed*0.15;
+  lastLn = ln; lastT = t;
+
+  qrA = smooth(seg(scale, 0.45, 1.30));
+  cA  = smooth(seg(scale, 0.055, 0.19)) * smooth(1 - seg(scale, 26, 60));
+  hrA = smooth(1 - seg(scale, 0.42, 1.30));
+  anchor = [ W*0.5 + (markC[0]-W*0.5)*settle, H*0.5 + (markC[1]-H*0.5)*settle ];
 }
 
 function frame(){
@@ -546,61 +527,47 @@ function frame(){
   timeline(t);
   gl.clear(gl.COLOR_BUFFER_BIT);
 
-  if(pA > 0.004){
-    gl.useProgram(gProg);
-    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
-    gl.bindBuffer(gl.ARRAY_BUFFER, quadBuf);
-    var LQ = gl.getAttribLocation(gProg, 'aQuad');
-    gl.enableVertexAttribArray(LQ);
-    gl.vertexAttribPointer(LQ, 2, gl.FLOAT, false, 0, 0);
-    gl.uniform2f(GU.uResPx, cv.width, cv.height);
-    gl.uniform1f(GU.uDPR, DPR);
-    gl.uniform2f(GU.uPC, anchor[0], anchor[1] + pR);
-    gl.uniform1f(GU.uPR, pR);
-    gl.uniform1f(GU.uTime, t);
-    gl.uniform1f(GU.uPA, pA);
-    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
-    gl.disableVertexAttribArray(LQ);
-  }
-
   if(cA > 0.004 && cardTex){
     gl.useProgram(cProg);
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
     gl.bindBuffer(gl.ARRAY_BUFFER, cardBuf);
-    var LP = gl.getAttribLocation(cProg, 'aPos'), LU = gl.getAttribLocation(cProg, 'aUV');
-    gl.enableVertexAttribArray(LP); gl.vertexAttribPointer(LP, 2, gl.FLOAT, false, 16, 0);
-    gl.enableVertexAttribArray(LU); gl.vertexAttribPointer(LU, 2, gl.FLOAT, false, 16, 8);
-    gl.activeTexture(gl.TEXTURE0);
-    gl.bindTexture(gl.TEXTURE_2D, cardTex);
-    gl.uniform1i(CU.uTex, 0);
-    gl.uniform2f(CU.uRes, W, H);
-    gl.uniform2f(CU.uAnchor, anchor[0], anchor[1]);
-    gl.uniform1f(CU.uScale, scale);
-    gl.uniform1f(CU.uRoll, roll);
-    gl.uniform1f(CU.uCA, cA);
-    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+    var LP = gl.getAttribLocation(cProg,'aPos'), LU = gl.getAttribLocation(cProg,'aUV');
+    gl.enableVertexAttribArray(LP); gl.vertexAttribPointer(LP,2,gl.FLOAT,false,16,0);
+    gl.enableVertexAttribArray(LU); gl.vertexAttribPointer(LU,2,gl.FLOAT,false,16,8);
+    gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, cardTex);
+    gl.uniform1i(CU.uTex,0);
+    gl.uniform2f(CU.uRes,W,H); gl.uniform2f(CU.uAnchor,anchor[0],anchor[1]);
+    gl.uniform1f(CU.uScale,scale); gl.uniform1f(CU.uCA,cA);
+    gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
     gl.disableVertexAttribArray(LP); gl.disableVertexAttribArray(LU);
   }
 
   gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
+
+  if(speed > 0.01){
+    gl.useProgram(sProg);
+    gl.bindBuffer(gl.ARRAY_BUFFER, stkBuf);
+    var LS = gl.getAttribLocation(sProg,'aStk'), LE = gl.getAttribLocation(sProg,'aEnd');
+    gl.enableVertexAttribArray(LS); gl.vertexAttribPointer(LS,3,gl.FLOAT,false,16,0);
+    gl.enableVertexAttribArray(LE); gl.vertexAttribPointer(LE,1,gl.FLOAT,false,16,12);
+    gl.uniform2f(SU.uRes,W,H); gl.uniform1f(SU.uTime,t); gl.uniform1f(SU.uSpeed,speed);
+    gl.drawArrays(gl.LINES,0,SN);
+    gl.disableVertexAttribArray(LS); gl.disableVertexAttribArray(LE);
+  }
+
   gl.useProgram(pProg);
-  var PL = [['aQR',2],['aStar',3],['aSeed',3]];
+  var PL = [['aQR',2],['aHR',2],['aSeed',3]];
   for(var i=0;i<PL.length;i++){
     var a = gl.getAttribLocation(pProg, PL[i][0]); if(a<0) continue;
     gl.bindBuffer(gl.ARRAY_BUFFER, buf[PL[i][0]]);
     gl.enableVertexAttribArray(a);
     gl.vertexAttribPointer(a, PL[i][1], gl.FLOAT, false, 0, 0);
   }
-  gl.uniform2f(PU.uRes, W, H);
-  gl.uniform2f(PU.uAnchor, anchor[0], anchor[1]);
-  gl.uniform1f(PU.uTime, t);
-  gl.uniform1f(PU.uScale, scale);
-  gl.uniform1f(PU.uRoll, roll);
-  gl.uniform1f(PU.uQRA, qrA);
-  gl.uniform1f(PU.uDPR, DPR);
-  gl.uniform2f(PU.uTouch, touch[0], touch[1]);
-  gl.uniform1f(PU.uTouchOn, touchOn);
-  gl.drawArrays(gl.POINTS, 0, N);
+  gl.uniform2f(PU.uRes,W,H); gl.uniform2f(PU.uAnchor,anchor[0],anchor[1]);
+  gl.uniform1f(PU.uScale,scale); gl.uniform1f(PU.uQRA,qrA); gl.uniform1f(PU.uHRA,hrA);
+  gl.uniform1f(PU.uDPR,DPR); gl.uniform1f(PU.uTime,t);
+  gl.uniform2f(PU.uTouch,touch[0],touch[1]); gl.uniform1f(PU.uTouchOn,touchOn);
+  gl.drawArrays(gl.POINTS,0,N);
 
   touchOn *= 0.94;
   raf = requestAnimationFrame(frame);
@@ -613,7 +580,7 @@ function doSkip(){
   document.body.classList.add('skipped');
   document.body.classList.add('arrived');
   var st = document.querySelector('.stage'); if(st) st.classList.remove('pre');
-  scale = S_END; roll = 0; settle = 1; qrA = 0; cA = 0;
+  scale = S_END; settle = 1; qrA = 0; cA = 0; hrA = 1; speed = 0;
 }
 var skipBtn = document.getElementById('skip');
 if(skipBtn) skipBtn.addEventListener('click', doSkip);
@@ -622,26 +589,19 @@ if(gl && !reduce){
   try{
     pProg = link(PVS, PFS);
     cProg = link(CVS, CFS);
-    gProg = link(GVS, GFS);
-    ['uRes','uAnchor','uTime','uScale','uRoll','uQRA','uDPR','uTouch','uTouchOn']
+    sProg = link(SVS, SFS);
+    ['uRes','uAnchor','uScale','uQRA','uHRA','uDPR','uTime','uTouch','uTouchOn']
       .forEach(function(k){ PU[k] = gl.getUniformLocation(pProg,k); });
-    ['uRes','uAnchor','uScale','uRoll','uTex','uCA']
-      .forEach(function(k){ CU[k] = gl.getUniformLocation(cProg,k); });
-    ['uResPx','uDPR','uPC','uPR','uTime','uPA']
-      .forEach(function(k){ GU[k] = gl.getUniformLocation(gProg,k); });
-    quadBuf = gl.createBuffer();
-    gl.bindBuffer(gl.ARRAY_BUFFER, quadBuf);
-    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 1,-1, -1,1, 1,1]), gl.STATIC_DRAW);
-    gl.disable(gl.DEPTH_TEST);
-    gl.enable(gl.BLEND);
-    gl.clearColor(0,0,0,0);
+    ['uRes','uAnchor','uScale','uTex','uCA'].forEach(function(k){ CU[k] = gl.getUniformLocation(cProg,k); });
+    ['uRes','uTime','uSpeed'].forEach(function(k){ SU[k] = gl.getUniformLocation(sProg,k); });
+    gl.disable(gl.DEPTH_TEST); gl.enable(gl.BLEND); gl.clearColor(0,0,0,0);
 
     var go = function(){
       document.body.classList.add('gpu');
       resize();
       cardTex = cardTexture();
       cv.classList.add('on');
-      t0 = performance.now();
+      t0 = performance.now(); lastLn = null; lastT = 0;
       requestAnimationFrame(function(){
         var st = document.querySelector('.stage'); if(st) st.classList.remove('pre');
         document.body.classList.add('go');
