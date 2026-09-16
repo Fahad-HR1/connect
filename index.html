@@ -54,24 +54,24 @@
   /* the camera pull-back : everything rushes back into place on load */
   .stage{width:100%;display:flex;flex-direction:column;align-items:center;flex:1;
          transform-style:preserve-3d;
-         animation:pullback 4.9s cubic-bezier(.12,.75,.12,1) both}
+         animation:pullback 9.7s cubic-bezier(.10,.62,.10,1) both}
   .stage.pre{animation:none;opacity:0}
   @keyframes pullback{
     0%  {opacity:0; filter:blur(30px); transform:scale(4.2)  translateY(110px) rotate(7deg)}
-    58% {opacity:0}
-    82% {opacity:1; filter:blur(5px)}
+    80% {opacity:0}
+    92% {opacity:1; filter:blur(5px)}
     100%{opacity:1; filter:blur(0);    transform:scale(1) translateY(0) rotate(0)}
   }
   /* impact beat when the letters lock in */
   .flash{position:fixed;inset:0;z-index:3;pointer-events:none;background:#bfeaff;
          opacity:0;mix-blend-mode:screen}
-  body.go .flash{animation:flash 1.1s ease-out 4.15s both}
+  body.go .flash{animation:flash 1.1s ease-out 8.80s both}
   @keyframes flash{0%{opacity:0}16%{opacity:.17}100%{opacity:0}}
   .wave{position:fixed;left:50%;top:26%;z-index:3;pointer-events:none;
         width:26px;height:26px;margin:-13px 0 0 -13px;border-radius:50%;
         border:2px solid rgba(127,211,245,.9);opacity:0}
-  body.go .wave{animation:wave 1.7s cubic-bezier(.16,1,.3,1) 4.20s both}
-  body.go .wave.b{animation-delay:4.37s;border-color:rgba(132,169,255,.6)}
+  body.go .wave{animation:wave 1.7s cubic-bezier(.16,1,.3,1) 8.85s both}
+  body.go .wave.b{animation-delay:9.02s;border-color:rgba(132,169,255,.6)}
   @keyframes wave{
     0%{opacity:.95; transform:scale(.2)}
     100%{opacity:0; transform:scale(34)}
@@ -156,6 +156,20 @@
             stroke-linecap:round;stroke-linejoin:round}
   .mini span{font-size:13.5px;letter-spacing:.06em}
 
+  /* skip control */
+  .skip{position:fixed;right:18px;bottom:calc(20px + env(safe-area-inset-bottom,0px));z-index:6;
+        display:flex;align-items:center;gap:7px;padding:9px 15px;border-radius:999px;
+        font:400 11.5px/1 'Poppins',system-ui,sans-serif;letter-spacing:.16em;color:#9fc4e8;
+        background:rgba(10,20,38,.55);border:1px solid rgba(132,169,255,.28);
+        -webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);
+        cursor:pointer;opacity:0;pointer-events:none;transition:opacity .45s ease}
+  body.go .skip{opacity:1;pointer-events:auto;transition-delay:.7s}
+  body.skipped .skip,body.arrived .skip{opacity:0;pointer-events:none;transition-delay:0s}
+  .skip svg{width:12px;height:12px;stroke:#9fc4e8;fill:none;stroke-width:2;
+            stroke-linecap:round;stroke-linejoin:round}
+  body.skipped .stage{animation:none!important;opacity:1;filter:none;transform:none}
+  body.skipped .flash,body.skipped .wave{animation:none!important;opacity:0}
+
   @media (prefers-reduced-motion:reduce){
     *,*::before,*::after{animation:none!important;transition:none!important}
   }
@@ -163,12 +177,14 @@
 </head>
 <body>
   <canvas id="gl"></canvas>
-  <div class="st s1"></div><div class="st s2"></div>
-  <div class="st s3"></div><div class="st s4"></div>
-
+  <button class="skip" id="skip" type="button" aria-label="Skip intro">
+    SKIP <svg viewBox="0 0 24 24"><path d="M5 5l7 7-7 7M13 5l7 7-7 7"/></svg>
+  </button>
   <div class="flash" aria-hidden="true"></div>
   <div class="wave" aria-hidden="true"></div>
   <div class="wave b" aria-hidden="true"></div>
+  <div class="st s1"></div><div class="st s2"></div>
+  <div class="st s3"></div><div class="st s4"></div>
 
   <main class="wrap" id="tilt">
    <div class="stage pre">
@@ -223,61 +239,49 @@
 "use strict";
 var reduce = window.matchMedia && matchMedia('(prefers-reduced-motion:reduce)').matches;
 
-/* ============================================================
-   One continuous pull-back:
-     a point of light -> Fahad's own QR code -> the tower
-     -> the letters HR -> the lobby
-   Pure WebGL, no library.
-   ============================================================ */
-var QR = "1111111001100111111010111111110000010101011011101101000001101110100011000000011010111011011101011110001110010101110110111010111000110011001011101100000100110000010000010000011111111010101010101010111111100000000111000010000000000000010111101010011110101110110101010110100110000111100011000010110110011100010110001001100111111011100100001010110010000111111010110001000110110100100000001001110111100101011101010000100111000001011000100011010100100111111111010011110000101011111100011100100100001111111011011011011111000111001101011101011001010101000000111001001101101100011000011100111110111111010111011111111000000000011010011001110001000011111110001001011111101010110100000101100011001001000110001011101011001101111111111101110111010110000101101010000010101110100011110010110001101111000001010110101001001011110111111110000110001001111110000", QN = 29;
-
+/* ==========================================================================
+   ONE CONTINUOUS PULL-BACK
+   point of light -> Fahad's QR -> the tower -> the city
+                  -> the planet -> back to a star -> HR -> the lobby
+   Pure WebGL. No library, no images.
+   ========================================================================== */
+var QRB = "1111111001100111111010111111110000010101011011101101000001101110100011000000011010111011011101011110001110010101110110111010111000110011001011101100000100110000010000010000011111111010101010101010111111100000000111000010000000000000010111101010011110101110110101010110100110000111100011000010110110011100010110001001100111111011100100001010110010000111111010110001000110110100100000001001110111100101011101010000100111000001011000100011010100100111111111010011110000101011111100011100100100001111111011011011011111000111001101011101011001010101000000111001001101101100011000011100111110111111010111011111111000000000011010011001110001000011111110001001011111101010110100000101100011001001000110001011101011001101111111111101110111010110000101101010000010101110100011110010110001101111000001010110101001001011110111111110000110001001111110000", QN = 29;
 var cv = document.getElementById('gl'), gl = null;
 try{
   gl = cv.getContext('webgl',{alpha:true,antialias:false,premultipliedAlpha:false,powerPreference:'high-performance'})
     || cv.getContext('experimental-webgl');
 }catch(e){}
 
-var VS = [
+/* ------------------------------ particles ------------------------------ */
+var PVS = [
 'precision highp float;',
-'attribute vec2 aQR;',
-'attribute vec2 aBld;',
-'attribute vec2 aHR;',
-'attribute vec3 aStar;',
-'attribute vec3 aSeed;',
-'uniform vec2  uRes;',
-'uniform vec2  uMark;',
-'uniform float uTime;',
-'uniform float uStage;',
-'uniform float uZoom;',
-'uniform float uRoll;',
-'uniform float uSettle;',
-'uniform vec2  uTouch;',
-'uniform float uTouchOn;',
-'uniform float uDPR;',
-'varying float vD;',
-'varying float vSeed;',
-'varying float vWarm;',
+'attribute vec2 aQR;','attribute vec2 aBld;','attribute vec2 aCity;','attribute vec2 aHR;',
+'attribute vec3 aStar;','attribute vec3 aSeed;',
+'uniform vec2  uRes;','uniform vec2  uMark;','uniform float uTime;','uniform float uStage;',
+'uniform float uZoom;','uniform float uRoll;','uniform float uSettle;','uniform float uPFade;',
+'uniform vec2  uTouch;','uniform float uTouchOn;','uniform float uDPR;',
+'varying float vD;','varying float vSeed;','varying float vWarm;','varying float vFade;',
 'void main(){',
 '  float s1 = aSeed.x, s2 = aSeed.y, s3 = aSeed.z;',
 '  float amb = step(0.78, s3);',
 '  vec3 pos; float warm = 0.0;',
-'  if(amb > 0.5){',
-'    pos = aStar;',
-'  } else {',
-'    float st = clamp(uStage, 0.0, 3.0);',
-'    float i0 = floor(min(st, 2.0));',
+'  if(amb > 0.5){ pos = aStar; vFade = 1.0; }',
+'  else {',
+'    float st = clamp(uStage, 0.0, 4.0);',
+'    float i0 = floor(min(st, 3.0));',
 '    float f  = st - i0;',
 '    f = clamp((f - s1*0.32) / 0.68, 0.0, 1.0);',
 '    f = f*f*(3.0-2.0*f);',
-'    vec3 pDot = vec3(aQR * 0.034, 0.0);',
-'    vec3 pQR  = vec3(aQR, sin(aQR.x*0.09 + aQR.y*0.07)*6.0);',
-'    vec3 pBld = vec3(aBld, sin(aBld.y*0.02 + s1*4.0)*22.0);',
-'    vec3 pHR  = vec3(aHR,  sin(uTime*1.15 + aHR.x*0.035 + aHR.y*0.02)*13.0);',
-'    vec3 a = i0 < 0.5 ? pDot : (i0 < 1.5 ? pQR  : pBld);',
-'    vec3 b = i0 < 0.5 ? pQR  : (i0 < 1.5 ? pBld : pHR );',
+'    vec3 pDot  = vec3(aQR * 0.034, 0.0);',
+'    vec3 pQR   = vec3(aQR,  sin(aQR.x*0.09 + aQR.y*0.07)*6.0);',
+'    vec3 pBld  = vec3(aBld, sin(aBld.y*0.02 + s1*4.0)*22.0);',
+'    vec3 pCity = vec3(aCity, sin(s1*40.0)*30.0);',
+'    vec3 pHR   = vec3(aHR,  sin(uTime*1.15 + aHR.x*0.035 + aHR.y*0.02)*13.0);',
+'    vec3 a = i0 < 0.5 ? pDot : (i0 < 1.5 ? pQR  : (i0 < 2.5 ? pBld  : pCity));',
+'    vec3 b = i0 < 0.5 ? pQR  : (i0 < 1.5 ? pBld : (i0 < 2.5 ? pCity : pHR ));',
 '    pos = mix(a, b, f);',
-// lit windows glow warm while the tower is on screen
-'    warm = 1.0 - clamp(abs(st - 2.0) / 0.85, 0.0, 1.0);',
+'    warm = clamp(1.0 - abs(st - 2.6)/1.3, 0.0, 1.0);',
+'    vFade = uPFade;',
 '  }',
 '  float persp = 520.0 / (520.0 + pos.z);',
 '  vec2 anchor = mix(uRes*0.5, uMark, uSettle);',
@@ -295,21 +299,79 @@ var VS = [
 '  vD = persp; vSeed = s2; vWarm = warm;',
 '}'].join('\n');
 
-var FS = [
+var PFS = [
 'precision highp float;',
-'varying float vD;',
-'varying float vSeed;',
-'varying float vWarm;',
+'varying float vD;','varying float vSeed;','varying float vWarm;','varying float vFade;',
 'void main(){',
 '  vec2 uv = gl_PointCoord - 0.5;',
 '  float r = length(uv);',
 '  if(r > 0.5) discard;',
-'  float a = smoothstep(0.5, 0.06, r);',
+'  float a = smoothstep(0.5, 0.06, r) * vFade;',
+'  if(a < 0.004) discard;',
 '  vec3 col = mix(vec3(0.16,0.38,0.78), vec3(0.50,0.86,1.00), clamp((vD-0.62)/0.55, 0.0, 1.0));',
-'  col = mix(col, vec3(1.00, 0.86, 0.58), vWarm * (0.30 + vSeed*0.45));',
+'  col = mix(col, vec3(1.00, 0.84, 0.54), vWarm * (0.32 + vSeed*0.45));',
 '  col = mix(col, vec3(1.0), pow(a, 6.0) * 0.55);',
 '  float glow = (0.40 + vD*0.55) * (0.80 + vSeed*0.34);',
 '  gl_FragColor = vec4(col * a * glow, a * glow);',
+'}'].join('\n');
+
+/* ------------------------------- planet -------------------------------- */
+var GVS = [
+'precision highp float;',
+'attribute vec2 aQuad;',
+'uniform vec2 uRes; uniform vec2 uPC; uniform float uPR;',
+'varying vec2 vP;',
+'void main(){',
+'  vP = aQuad * 1.42;',
+'  vec2 sp = uPC + aQuad * uPR * 1.42;',
+'  gl_Position = vec4(sp.x/uRes.x*2.0 - 1.0, 1.0 - sp.y/uRes.y*2.0, 0.0, 1.0);',
+'}'].join('\n');
+
+var GFS = [
+'precision highp float;',
+'varying vec2 vP;',
+'uniform float uTime; uniform float uPA;',
+'float hash(vec3 p){ return fract(sin(dot(p, vec3(127.1,311.7,74.7)))*43758.5453); }',
+'float vn(vec3 p){',
+'  vec3 i = floor(p), f = fract(p);',
+'  f = f*f*(3.0-2.0*f);',
+'  float a = mix(mix(hash(i), hash(i+vec3(1.,0.,0.)), f.x), mix(hash(i+vec3(0.,1.,0.)), hash(i+vec3(1.,1.,0.)), f.x), f.y);',
+'  float b = mix(mix(hash(i+vec3(0.,0.,1.)), hash(i+vec3(1.,0.,1.)), f.x), mix(hash(i+vec3(0.,1.,1.)), hash(i+vec3(1.,1.,1.)), f.x), f.y);',
+'  return mix(a, b, f.z);',
+'}',
+'float fbm(vec3 p){ float a=0.5, s=0.0; for(int i=0;i<4;i++){ s+=a*vn(p); p*=2.03; a*=0.5; } return s; }',
+'void main(){',
+'  float r2 = dot(vP, vP);',
+'  vec3 L = normalize(vec3(0.58, -0.30, 0.76));',
+'  if(r2 > 1.0){',
+'    float d = sqrt(r2);',
+'    float halo = exp(-(d - 1.0) * 7.5);',
+'    float lit = max(dot(normalize(vec3(vP, 0.02)), L), 0.0);',
+'    float a = halo * (0.16 + lit*0.62) * uPA;',
+'    if(a < 0.004) discard;',
+'    gl_FragColor = vec4(vec3(0.30, 0.60, 1.0) * a, a);',
+'    return;',
+'  }',
+'  vec3 n = vec3(vP, sqrt(max(0.0, 1.0 - r2)));',
+'  float sp = uTime * 0.055;',
+'  float cs = cos(sp), sn = sin(sp);',
+'  vec3 q = vec3(n.x*cs + n.z*sn, n.y, -n.x*sn + n.z*cs);',
+'  float land   = fbm(q*2.1 + 9.4);',
+'  float isLand = smoothstep(0.470, 0.545, land);',
+'  vec3 ocean = mix(vec3(0.010,0.055,0.170), vec3(0.020,0.120,0.290), fbm(q*4.5));',
+'  vec3 grnd  = mix(vec3(0.055,0.150,0.105), vec3(0.185,0.230,0.140), fbm(q*7.0));',
+'  vec3 base  = mix(ocean, grnd, isLand);',
+'  float dif   = max(dot(n, L), 0.0);',
+'  float night = smoothstep(0.14, -0.08, dot(n, L));',
+'  float c = fbm(q*26.0);',
+'  float city = smoothstep(0.600, 0.735, c) * isLand * night;',
+'  vec3 col = base * (0.05 + dif*1.22);',
+'  col += vec3(1.0, 0.74, 0.40) * city * 1.9;',
+'  float cl = smoothstep(0.545, 0.760, fbm(q*3.2 + vec3(uTime*0.012, 0.0, 0.0)));',
+'  col = mix(col, vec3(0.90,0.94,1.0) * (0.10 + dif*0.95), cl*0.52);',
+'  float rim = pow(r2, 7.0);',
+'  col += vec3(0.28, 0.58, 1.0) * rim * (0.22 + dif*0.85);',
+'  gl_FragColor = vec4(col * uPA, uPA);',
 '}'].join('\n');
 
 function sh(t2, src){
@@ -317,7 +379,16 @@ function sh(t2, src){
   if(!gl.getShaderParameter(o, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(o));
   return o;
 }
+function link(v, f){
+  var p = gl.createProgram();
+  gl.attachShader(p, sh(gl.VERTEX_SHADER, v));
+  gl.attachShader(p, sh(gl.FRAGMENT_SHADER, f));
+  gl.linkProgram(p);
+  if(!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p));
+  return p;
+}
 
+/* ------------------------------- shapes -------------------------------- */
 function sampleHR(w, h){
   var c = document.createElement('canvas'), S = 2;
   c.width = Math.max(8, Math.round(w*S)); c.height = Math.max(8, Math.round(h*S));
@@ -333,58 +404,66 @@ function sampleHR(w, h){
   return pts;
 }
 
-/* a corporate tower drawn as lit windows */
-function sampleTower(H){
-  var S = 2, w = Math.round(H*0.62), h = Math.round(H);
+function sampleTower(HH){
+  var S = 2, w = Math.round(HH*0.62), h = Math.round(HH);
   var c = document.createElement('canvas');
   c.width = w*S; c.height = h*S;
-  var x = c.getContext('2d');
+  var x = c.getContext('2d'), W2 = w*S, H2 = h*S;
   x.fillStyle = '#fff';
-  var W = w*S, Hh = h*S;
   var blocks = [
-    [W*0.355, Hh*0.09, W*0.29, Hh*0.91],  // main tower
-    [W*0.115, Hh*0.47, W*0.24, Hh*0.53],  // left wing
-    [W*0.645, Hh*0.34, W*0.24, Hh*0.66]   // right wing
+    [W2*0.355, H2*0.09, W2*0.29, H2*0.91],
+    [W2*0.115, H2*0.47, W2*0.24, H2*0.53],
+    [W2*0.645, H2*0.34, W2*0.24, H2*0.66]
   ];
-  // spire
-  x.fillRect(W*0.492, Hh*0.015, W*0.016, Hh*0.075);
-  // window grid
-  var cell = Math.max(5, Math.round(Hh*0.026));
+  x.fillRect(W2*0.492, H2*0.015, W2*0.016, H2*0.075);
+  var cell = Math.max(5, Math.round(H2*0.026));
   for(var b=0; b<blocks.length; b++){
     var B = blocks[b];
-    for(var yy=B[1]+cell*0.6; yy<B[1]+B[3]-cell*0.4; yy+=cell){
+    for(var yy=B[1]+cell*0.6; yy<B[1]+B[3]-cell*0.4; yy+=cell)
       for(var xx=B[0]+cell*0.6; xx<B[0]+B[2]-cell*0.4; xx+=cell){
-        if(Math.random() < 0.26) continue;          // some windows are dark
+        if(Math.random() < 0.26) continue;
         x.fillRect(xx, yy, cell*0.52, cell*0.42);
       }
-    }
-    // edges so the silhouette reads
     x.fillRect(B[0], B[1], 2, B[3]);
     x.fillRect(B[0]+B[2]-2, B[1], 2, B[3]);
     x.fillRect(B[0], B[1], B[2], 2);
   }
-  var d = x.getImageData(0,0,W,Hh).data, pts = [];
-  for(var y2=0; y2<Hh; y2+=2) for(var x2=0; x2<W; x2+=2)
-    if(d[(y2*W+x2)*4+3] > 130)
-      pts.push(x2/S - w/2, y2/S - h/2);
+  var d = x.getImageData(0,0,W2,H2).data, pts = [];
+  for(var y2=0; y2<H2; y2+=2) for(var x2=0; x2<W2; x2+=2)
+    if(d[(y2*W2+x2)*4+3] > 130) pts.push(x2/S - w/2, y2/S - h/2);
   return pts;
 }
 
-var prog, buf = {}, N = 0, U = {};
+function makeCity(ext){
+  var pts = [], G = 20, cell = ext/G, gx, gy, i;
+  for(gy=0; gy<G; gy++) for(gx=0; gx<G; gx++){
+    if(Math.random() < 0.16) continue;                       // parks and gaps
+    var bx = -ext/2 + gx*cell, by = -ext/2 + gy*cell;
+    var dense = 0.35 + Math.random()*0.65;                   // downtown vs suburb
+    var k = 2 + (Math.random()*9*dense|0);
+    for(i=0; i<k; i++)
+      pts.push(bx + cell*(0.20 + Math.random()*0.56),        // blocks, streets stay dark
+               by + cell*(0.20 + Math.random()*0.56));
+  }
+  return pts;
+}
+
+/* -------------------------------- state -------------------------------- */
+var pProg, gProg, PU = {}, GU = {}, buf = {}, quadBuf, N = 0;
 var W=0, H=0, DPR=1, markC=[0,0], t0=performance.now(), raf=null;
 var touch=[-9999,-9999], touchOn=0;
 var markEl = document.querySelector('.hr');
 
-var INTRO = 4.9;
-var stage = 0, zoom = 26, roll = 0.32, settle = 0;
+var INTRO  = 9.7;
+var stage = 0, zoom = 26, roll = 0.34, settle = 0, pFade = 1, pA = 0, pR = 10, pC = [0,0];
+var skipped = false;
+
 function seg(t,a,b){ return Math.max(0, Math.min(1, (t-a)/(b-a))); }
 function smooth(x){ return x*x*(3-2*x); }
-
-// camera distance for each stage (geometric, so the retreat feels exponential)
-var ZS = [26.0, 1.72, 1.20, 1.0];
+var ZS = [26.0, 1.72, 1.15, 0.62, 1.0];
 function zoomFor(st){
-  var i = Math.min(2, Math.floor(st)), f = st - i;
-  return Math.exp(Math.log(ZS[i]) * (1-f) + Math.log(ZS[i+1]) * f);
+  var i = Math.min(3, Math.floor(st)), f = st - i;
+  return Math.exp(Math.log(ZS[i])*(1-f) + Math.log(ZS[i+1])*f);
 }
 
 function build(){
@@ -394,37 +473,51 @@ function build(){
 
   var hp = sampleHR(mw, mh);
   var tp = sampleTower(mw*2.45);
+  var cp = makeCity(mw*5.2);
   var max = (W*H > 900*900) ? 24000 : 15000;
   var total = hp.length/2, stride = Math.max(1, Math.ceil(total/max));
 
   var QS = (mw*1.32)/QN, qOff = -(QN*QS)/2, lit = [];
   for(var yy=0; yy<QN; yy++) for(var xx=0; xx<QN; xx++)
-    if(QR.charCodeAt(yy*QN+xx) === 49) lit.push(xx, yy);
-  var nLit = lit.length/2, nT = tp.length/2;
+    if(QRB.charCodeAt(yy*QN+xx) === 49) lit.push(xx, yy);
+  var nLit = lit.length/2, nT = tp.length/2, nC = cp.length/2;
 
-  var qr=[], bld=[], hr=[], star=[], seed=[], i=0;
+  var qr=[], bld=[], city=[], hr=[], star=[], seed=[], i=0;
   for(var q=0; q<total; q+=stride, i++){
     hr.push(hp[q*2], hp[q*2+1]);
-    var li = (i % nLit) * 2;
-    qr.push(qOff + (lit[li]   + 0.12 + Math.random()*0.76) * QS,
-            qOff + (lit[li+1] + 0.12 + Math.random()*0.76) * QS);
-    var ti = (i % nT) * 2;
+    var li = (i % nLit)*2;
+    qr.push(qOff + (lit[li]   + 0.12 + Math.random()*0.76)*QS,
+            qOff + (lit[li+1] + 0.12 + Math.random()*0.76)*QS);
+    var ti = (i % nT)*2;
     bld.push(tp[ti] + (Math.random()-0.5)*1.4, tp[ti+1] + (Math.random()-0.5)*1.4);
+    var ci = (i % nC)*2;
+    city.push(cp[ci], cp[ci+1]);
     star.push((Math.random()*2.6-0.8)*W, (Math.random()*2.6-0.8)*H,
               Math.pow(Math.random(),0.75)*1500 - 60);
     seed.push(Math.random(), Math.random(), Math.random());
   }
   N = hr.length/2;
 
+  gl.useProgram(pProg);
   function up(name, arr, n){
-    var L = gl.getAttribLocation(prog, name); if(L<0) return;
+    var L = gl.getAttribLocation(pProg, name); if(L<0) return;
     if(!buf[name]) buf[name] = gl.createBuffer();
     gl.bindBuffer(gl.ARRAY_BUFFER, buf[name]);
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(arr), gl.STATIC_DRAW);
-    gl.enableVertexAttribArray(L);
-    gl.vertexAttribPointer(L, n, gl.FLOAT, false, 0, 0);
   }
-  up('aQR',qr,2); up('aBld',bld,2); up('aHR',hr,2); up('aStar',star,3); up('aSeed',seed,3);
+  up('aQR',qr,2); up('aBld',bld,2); up('aCity',city,2); up('aHR',hr,2);
+  up('aStar',star,3); up('aSeed',seed,3);
+}
+
+function bindParticles(){
+  gl.useProgram(pProg);
+  var list = [['aQR',2],['aBld',2],['aCity',2],['aHR',2],['aStar',3],['aSeed',3]];
+  for(var i=0;i<list.length;i++){
+    var L = gl.getAttribLocation(pProg, list[i][0]); if(L<0) continue;
+    gl.bindBuffer(gl.ARRAY_BUFFER, buf[list[i][0]]);
+    gl.enableVertexAttribArray(L);
+    gl.vertexAttribPointer(L, list[i][1], gl.FLOAT, false, 0, 0);
+  }
 }
 
 function resize(){
@@ -435,22 +528,35 @@ function resize(){
   build();
 }
 
+/* ------------------------------ timeline ------------------------------- */
 function timeline(t){
   if(t < INTRO){
     var s;
-    if(t < 0.55)      s = 0;                                          // a point of light
-    else if(t < 1.50) s = smooth(seg(t, 0.55, 1.50));                 // -> his QR code
-    else if(t < 2.05) s = 1;                                          // hold: read the code
-    else if(t < 3.00) s = 1 + smooth(seg(t, 2.05, 3.00));             // -> the tower
-    else if(t < 3.35) s = 2;                                          // hold: the building
-    else              s = 2 + smooth(seg(t, 3.35, 4.35));             // -> HR
-    stage = Math.min(3, s);
+    if(t < 0.55)      s = 0;
+    else if(t < 1.50) s = smooth(seg(t, 0.55, 1.50));           // -> the QR
+    else if(t < 2.10) s = 1;                                    // hold on the code
+    else if(t < 3.05) s = 1 + smooth(seg(t, 2.10, 3.05));       // -> the tower
+    else if(t < 3.50) s = 2;                                    // hold on the building
+    else if(t < 4.45) s = 2 + smooth(seg(t, 3.50, 4.45));       // -> the city
+    else if(t < 7.70) s = 3;                                    // (the planet takes over)
+    else              s = 3 + smooth(seg(t, 7.70, 8.75));       // -> HR
+    stage = Math.min(4, s);
     zoom  = zoomFor(stage);
     roll  = 0.34 * Math.max(0, 1 - stage/1.15);
-    settle = smooth(seg(t, 3.55, 4.75));
+    settle = smooth(seg(t, 8.05, 9.25));
+    // particles step aside while the planet is on screen
+    pFade = 1 - smooth(seg(t, 4.85, 5.35)) * (1 - smooth(seg(t, 7.70, 8.25)));
+    // the planet: enormous and close, then shrinking away to a point of light
+    if(t > 4.70 && t < 8.80){
+      var e = Math.max(0, t - 4.90);
+      pR = Math.max(6, 1.95*H * Math.exp(-0.56 * Math.pow(e, 1.55)));
+      pA = smooth(seg(t, 4.80, 5.30)) * (1 - smooth(seg(t, 8.10, 8.75)));
+      pC = [W*0.5, H*0.5 + pR*0.84];
+    } else { pA = 0; }
   } else {
-    var ph = (t - INTRO) % 22.0;
-    var want = (ph < 17.0) ? 3 : 2;
+    pA = 0; pFade += (1-pFade)*0.1;
+    var ph = (t - INTRO) % 24.0;
+    var want = (ph < 19.0) ? 4 : 3;
     stage += (want - stage) * 0.020;
     zoom += (zoomFor(stage) - zoom) * 0.10;
     roll *= 0.92; settle += (1-settle)*0.1;
@@ -461,34 +567,66 @@ function frame(){
   var t = (performance.now()-t0)/1000;
   timeline(t);
   gl.clear(gl.COLOR_BUFFER_BIT);
-  gl.uniform2f(U.uRes, W, H);
-  gl.uniform2f(U.uMark, markC[0], markC[1]);
-  gl.uniform1f(U.uTime, t);
-  gl.uniform1f(U.uStage, stage);
-  gl.uniform1f(U.uZoom, zoom);
-  gl.uniform1f(U.uRoll, roll);
-  gl.uniform1f(U.uSettle, settle);
-  gl.uniform2f(U.uTouch, touch[0], touch[1]);
-  gl.uniform1f(U.uTouchOn, touchOn);
-  gl.uniform1f(U.uDPR, DPR);
+
+  if(pA > 0.004){
+    gl.useProgram(gProg);
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+    gl.bindBuffer(gl.ARRAY_BUFFER, quadBuf);
+    var LQ = gl.getAttribLocation(gProg, 'aQuad');
+    gl.enableVertexAttribArray(LQ);
+    gl.vertexAttribPointer(LQ, 2, gl.FLOAT, false, 0, 0);
+    gl.uniform2f(GU.uRes, W, H);
+    gl.uniform2f(GU.uPC, pC[0], pC[1]);
+    gl.uniform1f(GU.uPR, pR);
+    gl.uniform1f(GU.uTime, t);
+    gl.uniform1f(GU.uPA, pA);
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+    gl.disableVertexAttribArray(LQ);
+  }
+
+  gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
+  bindParticles();
+  gl.uniform2f(PU.uRes, W, H);
+  gl.uniform2f(PU.uMark, markC[0], markC[1]);
+  gl.uniform1f(PU.uTime, t);
+  gl.uniform1f(PU.uStage, stage);
+  gl.uniform1f(PU.uZoom, zoom);
+  gl.uniform1f(PU.uRoll, roll);
+  gl.uniform1f(PU.uSettle, settle);
+  gl.uniform1f(PU.uPFade, pFade);
+  gl.uniform2f(PU.uTouch, touch[0], touch[1]);
+  gl.uniform1f(PU.uTouchOn, touchOn);
+  gl.uniform1f(PU.uDPR, DPR);
   gl.drawArrays(gl.POINTS, 0, N);
+
   touchOn *= 0.94;
   raf = requestAnimationFrame(frame);
 }
 
+function doSkip(){
+  if(skipped) return;
+  skipped = true;
+  t0 = performance.now() - INTRO*1000;
+  document.body.classList.add('skipped');
+  document.body.classList.add('arrived');
+  document.querySelector('.stage').classList.remove('pre');
+  stage = 4; zoom = 1; roll = 0; settle = 1; pFade = 1; pA = 0;
+}
+var skipBtn = document.getElementById('skip');
+if(skipBtn) skipBtn.addEventListener('click', doSkip);
+
 if(gl && !reduce){
   try{
-    prog = gl.createProgram();
-    gl.attachShader(prog, sh(gl.VERTEX_SHADER, VS));
-    gl.attachShader(prog, sh(gl.FRAGMENT_SHADER, FS));
-    gl.linkProgram(prog);
-    if(!gl.getProgramParameter(prog, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(prog));
-    gl.useProgram(prog);
-    ['uRes','uMark','uTime','uStage','uZoom','uRoll','uSettle','uTouch','uTouchOn','uDPR']
-      .forEach(function(k){ U[k] = gl.getUniformLocation(prog,k); });
+    pProg = link(PVS, PFS);
+    gProg = link(GVS, GFS);
+    ['uRes','uMark','uTime','uStage','uZoom','uRoll','uSettle','uPFade','uTouch','uTouchOn','uDPR']
+      .forEach(function(k){ PU[k] = gl.getUniformLocation(pProg,k); });
+    ['uRes','uPC','uPR','uTime','uPA'].forEach(function(k){ GU[k] = gl.getUniformLocation(gProg,k); });
+    quadBuf = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, quadBuf);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 1,-1, -1,1, 1,1]), gl.STATIC_DRAW);
     gl.disable(gl.DEPTH_TEST);
     gl.enable(gl.BLEND);
-    gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
     gl.clearColor(0,0,0,0);
 
     var go = function(){
@@ -500,6 +638,7 @@ if(gl && !reduce){
         document.querySelector('.stage').classList.remove('pre');
         document.body.classList.add('go');
       });
+      setTimeout(function(){ document.body.classList.add('arrived'); }, INTRO*1000 + 300);
       frame();
     };
     if(document.fonts && document.fonts.ready) document.fonts.ready.then(go).catch(go);
@@ -519,10 +658,10 @@ if(gl && !reduce){
     window.addEventListener('touchmove', function(e){
       var pt=e.touches[0]; if(!pt) return; touch=[pt.clientX,pt.clientY]; touchOn=1;
     }, {passive:true});
-  }catch(err){ /* no WebGL -> CSS mark stays */ }
-}
+  }catch(err){ if(skipBtn) skipBtn.style.display='none'; doSkip(); }
+} else { if(skipBtn) skipBtn.style.display='none'; doSkip(); }
 
-/* ---------- parallax tilt ---------- */
+/* --------------------------- parallax tilt ----------------------------- */
 var el = document.getElementById('tilt'), tx=0, ty=0, cx=0, cy=0, idle=0, active=false;
 function loop(){
   idle += 0.012;
