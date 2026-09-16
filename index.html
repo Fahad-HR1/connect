@@ -265,6 +265,7 @@ var PVS = [
 'attribute vec2 aPos; attribute vec4 aMeta;',
 'uniform vec2 uRes; uniform vec2 uAnchor; uniform float uScale; uniform float uDPR;',
 'uniform float uTime; uniform vec2 uA; uniform float uIdle; uniform vec2 uStart;',
+'uniform float uAmp; uniform float uBloom;',
 'uniform vec2 uTouch; uniform float uTouchOn;',
 'varying float vA; varying float vSeed;',
 'void main(){',
@@ -274,15 +275,16 @@ var PVS = [
 '  float pitch = lvl < 0.5 ? 1.0  : PITCHV;',
 '  vec2 w = aPos;',
 // after the camera settles the mark breathes: it scatters and re-forms
-'  if(lvl > 0.5) w += vec2(cos(ang), sin(ang)) * uIdle * rad * PITCHV * 7.0;',
+'  if(uBloom > 0.5 && lvl < 0.5){ gl_Position = vec4(2.0,2.0,2.0,1.0); gl_PointSize = 0.0; return; }',
+'  if(lvl > 0.5) w += vec2(cos(ang), sin(ang)) * uIdle * rad * PITCHV * uAmp;',
 '  vec2 sp = uAnchor + (w - uStart) * uScale;',
 '  vec2 dd = sp - uTouch;',
 '  sp += normalize(dd + 0.0001) * uTouchOn * smoothstep(110.0, 0.0, length(dd)) * 34.0;',
 '  gl_Position = vec4(sp.x/uRes.x*2.0 - 1.0, 1.0 - sp.y/uRes.y*2.0, 0.0, 1.0);',
 '  float mx = lvl < 0.5 ? 260.0 : 30.0;',
-'  gl_PointSize = max(1.0, clamp(pitch * uScale * 0.60, 2.6, mx) * uDPR);',
+'  gl_PointSize = max(1.0, clamp(pitch * uScale * 0.60, 2.6, mx) * uDPR * (uBloom > 0.5 ? 3.6 : 1.0));',
 '  float live = lvl < 0.5 ? 1.0 : (0.80 + 0.20*sin(uTime*1.9 + sd*41.0));',
-'  vA = a * live * dim; vSeed = sd;',
+'  vA = a * live * dim * (uBloom > 0.5 ? 0.17 : 1.0); vSeed = sd;',
 '}'].join('\n');
 
 var PFS = [
@@ -432,7 +434,7 @@ var markEl = document.querySelector('.hr');
 
 var INTRO = 10.2, TRAVEL = 9.5;
 var S0 = 2600, S_END = 0.02, RATE = 1;
-var scale = S0, settle = 0, speed = 1, whiteA = 1, cardsA = 0, idle = 0;
+var scale = S0, settle = 0, speed = 1, whiteA = 1, cardsA = 0, idle = 0, amp = 1.15;
 var A = [1,0], START = [0,0], startW = 1;
 var skipped = false;
 
@@ -535,19 +537,22 @@ function resize(){
 
 function timeline(t){
   if(t < TRAVEL){
-    var pr = t/TRAVEL;
-    var pp = pr <= 0.78 ? pr : 0.78 + 0.22*(1 - Math.pow(1 - (pr-0.78)/0.22, 3));
-    scale = S0 * Math.exp(-Math.log(S0/S_END) * pp);
-    speed = pr <= 0.78 ? 1 : Math.max(0, Math.pow(1 - (pr-0.78)/0.22, 2));
-    idle = smooth(seg(t, TRAVEL-2.3, TRAVEL-1.35)) * (1 - smooth(seg(t, TRAVEL-1.35, TRAVEL+0.35)));
+    var L = Math.log(S0/S_END), EASE = 0.65, T1 = TRAVEL - EASE;
+    var R = L / (TRAVEL - EASE*0.5);
+    var d = t <= T1 ? R*t : R*(T1 + (t-T1) - (t-T1)*(t-T1)/(2*EASE));
+    scale = S0 * Math.exp(-Math.min(L, d));
+    speed = t <= T1 ? 1 : Math.max(0, 1 - (t-T1)/EASE);
+    idle = smooth(seg(t, TRAVEL-2.4, TRAVEL-1.5)) * (1 - smooth(seg(t, TRAVEL-1.5, TRAVEL+0.5)));
+    amp = 1.15;
   }
   else if(t < INTRO){ scale = S_END; speed = 1 - smooth(seg(t, TRAVEL, INTRO));
-    idle = 1 - smooth(seg(t, TRAVEL-1.35, TRAVEL+0.35)); }
+    idle = 1 - smooth(seg(t, TRAVEL-1.5, TRAVEL+0.5)); amp = 1.15; }
   else {
     scale = S_END; speed = 0;
-    var ph = (t - INTRO) % 4.2;                       // scatter and re-form, often and quickly
-    idle = ph < 0.55 ? smooth(ph/0.55)
-         : (ph < 1.55 ? 1 - smooth((ph-0.55)/1.0) : 0);
+    var ph = (t - INTRO) % 4.3;      // the drift itself is slow; the pause between is short
+    idle = ph < 1.5 ? smooth(ph/1.5)
+         : (ph < 3.5 ? 1 - smooth((ph-1.5)/2.0) : 0);
+    amp = 2.1;
   }
   settle = smooth(seg(t, TRAVEL-1.2, INTRO));
   startW = smooth(seg(scale, 16, 300));
@@ -600,9 +605,16 @@ function frame(){
   gl.uniform2f(PU.uRes,W,H); gl.uniform2f(PU.uAnchor,anchor[0],anchor[1]);
   gl.uniform1f(PU.uScale,scale); gl.uniform1f(PU.uDPR,DPR); gl.uniform1f(PU.uTime,t);
   gl.uniform2f(PU.uStart, START[0]*startW, START[1]*startW);
+  gl.uniform1f(PU.uAmp, amp);
+  gl.uniform1f(PU.uBloom, 0);
   gl.uniform2f(PU.uA, A[0], A[1]); gl.uniform1f(PU.uIdle, idle);
   gl.uniform2f(PU.uTouch,touch[0],touch[1]); gl.uniform1f(PU.uTouchOn,touchOn);
   gl.drawArrays(gl.POINTS,0,N);
+  if(A[1] > 0.01){
+    gl.uniform1f(PU.uBloom, 1);
+    gl.drawArrays(gl.POINTS,0,N);
+    gl.uniform1f(PU.uBloom, 0);
+  }
 
   touchOn *= 0.94;
   raf = requestAnimationFrame(frame);
@@ -626,7 +638,7 @@ if(gl && !reduce){
     cProg = link(CVS, CFS);
     wProg = link(WVS, WFS);
     sProg = link(SVS, SFS);
-    ['uRes','uAnchor','uScale','uDPR','uTime','uA','uIdle','uStart','uTouch','uTouchOn']
+    ['uRes','uAnchor','uScale','uDPR','uTime','uA','uIdle','uStart','uAmp','uBloom','uTouch','uTouchOn']
       .forEach(function(k){ PU[k] = gl.getUniformLocation(pProg,k); });
     ['uRes','uAnchor','uScale','uTex','uCA','uStart'].forEach(function(k){ CU[k] = gl.getUniformLocation(cProg,k); });
     ['uWA','uRes','uAnchor','uR'].forEach(function(k){ WU[k] = gl.getUniformLocation(wProg,k); });
