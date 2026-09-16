@@ -54,23 +54,24 @@
   /* the camera pull-back : everything rushes back into place on load */
   .stage{width:100%;display:flex;flex-direction:column;align-items:center;flex:1;
          transform-style:preserve-3d;
-         animation:pullback 1.9s cubic-bezier(.16,1,.3,1) both}
+         animation:pullback 4.1s cubic-bezier(.12,.75,.12,1) both}
   .stage.pre{animation:none;opacity:0}
   @keyframes pullback{
-    0%  {opacity:0; filter:blur(18px); transform:scale(2.15) translateY(46px)}
-    55% {opacity:1}
-    100%{opacity:1; filter:blur(0);    transform:scale(1) translateY(0)}
+    0%  {opacity:0; filter:blur(30px); transform:scale(4.2)  translateY(110px) rotate(7deg)}
+    58% {opacity:0}
+    82% {opacity:1; filter:blur(5px)}
+    100%{opacity:1; filter:blur(0);    transform:scale(1) translateY(0) rotate(0)}
   }
   /* impact beat when the letters lock in */
   .flash{position:fixed;inset:0;z-index:3;pointer-events:none;background:#bfeaff;
          opacity:0;mix-blend-mode:screen}
-  body.go .flash{animation:flash 1.0s ease-out 1.35s both}
+  body.go .flash{animation:flash 1.1s ease-out 3.30s both}
   @keyframes flash{0%{opacity:0}16%{opacity:.17}100%{opacity:0}}
   .wave{position:fixed;left:50%;top:26%;z-index:3;pointer-events:none;
         width:26px;height:26px;margin:-13px 0 0 -13px;border-radius:50%;
         border:2px solid rgba(127,211,245,.9);opacity:0}
-  body.go .wave{animation:wave 1.5s cubic-bezier(.16,1,.3,1) 1.4s both}
-  body.go .wave.b{animation-delay:1.56s;border-color:rgba(132,169,255,.6)}
+  body.go .wave{animation:wave 1.7s cubic-bezier(.16,1,.3,1) 3.35s both}
+  body.go .wave.b{animation-delay:3.52s;border-color:rgba(132,169,255,.6)}
   @keyframes wave{
     0%{opacity:.95; transform:scale(.2)}
     100%{opacity:0; transform:scale(34)}
@@ -223,84 +224,93 @@
 var reduce = window.matchMedia && matchMedia('(prefers-reduced-motion:reduce)').matches;
 
 /* ============================================================
-   GPU particle mark — particles fly in from a cloud and
-   assemble the letters "HR", breathe, scatter, reassemble.
+   One continuous camera pull-back:
+     a point of light  ->  Fahad's actual QR code
+                       ->  a network of connected people
+                       ->  the letters HR  ->  the lobby
    Pure WebGL, no library.
    ============================================================ */
-var cv = document.getElementById('gl');
-var gl = null;
+var QR = "1111111001100111111010111111110000010101011011101101000001101110100011000000011010111011011101011110001110010101110110111010111000110011001011101100000100110000010000010000011111111010101010101010111111100000000111000010000000000000010111101010011110101110110101010110100110000111100011000010110110011100010110001001100111111011100100001010110010000111111010110001000110110100100000001001110111100101011101010000100111000001011000100011010100100111111111010011110000101011111100011100100100001111111011011011011111000111001101011101011001010101000000111001001101101100011000011100111110111111010111011111111000000000011010011001110001000011111110001001011111101010110100000101100011001001000110001011101011001101111111111101110111010110000101101010000010101110100011110010110001101111000001010110101001001011110111111110000110001001111110000", QN = 29;
+
+var cv = document.getElementById('gl'), gl = null;
 try{
   gl = cv.getContext('webgl',{alpha:true,antialias:false,premultipliedAlpha:false,powerPreference:'high-performance'})
     || cv.getContext('experimental-webgl');
 }catch(e){}
 
+/* ---------------- points ---------------- */
 var VS = [
 'precision highp float;',
-'attribute vec2 aTarget;',   // pixel-space target inside the mark box
-'attribute vec3 aCloud;',    // scattered home position (pixels, + depth)
-'attribute vec3 aSeed;',     // random seeds
+'attribute vec2 aQR;',
+'attribute vec2 aNet;',
+'attribute vec2 aHR;',
+'attribute vec3 aStar;',
+'attribute vec3 aSeed;',
 'uniform vec2  uRes;',
-'uniform vec2  uMark;',      // mark box centre in pixels
+'uniform vec2  uMark;',
 'uniform float uTime;',
-'uniform float uMorph;',     // 0 = cloud, 1 = letters
-'uniform vec2  uTouch;',     // pointer in pixels
+'uniform float uStage;',
+'uniform float uZoom;',
+'uniform float uRoll;',
+'uniform float uSettle;',
+'uniform vec2  uTouch;',
 'uniform float uTouchOn;',
 'uniform float uDPR;',
-'uniform float uZoom;',
-'uniform float uChaos;',
-'varying float vDepth;',
+'varying float vD;',
 'varying float vSeed;',
+'varying float vHot;',
 'void main(){',
 '  float s1 = aSeed.x, s2 = aSeed.y, s3 = aSeed.z;',
-// per-particle stagger so the assembly ripples instead of snapping
-'  float m = clamp((uMorph - s1*0.35) / 0.65, 0.0, 1.0);',
-'  m = m*m*(3.0-2.0*m);',
-'  float amb = step(0.74, s3);',   // ~26% never join the letters — ambient depth field
-'  m *= (1.0 - amb);',
-'  vec3 cloud = aCloud;',
-// slow drift while scattered
-'  float spin = uTime*0.42 * (1.0 - amb);',
-'  float cs = cos(spin), sn = sin(spin);',
-'  vec2 rot = vec2(aCloud.x*cs - aCloud.z*sn, aCloud.x*sn + aCloud.z*cs);',
-'  cloud.x = mix(cloud.x, rot.x + uMark.x, 1.0 - amb);',
-'  cloud.y += (1.0 - amb) * uMark.y;',
-'  cloud.z = mix(cloud.z, rot.y, 1.0 - amb);',
-'  cloud.x += sin(uTime*0.55 + s1*32.0)*14.0;',
-'  cloud.y += cos(uTime*0.47 + s2*27.0)*12.0;',
-'  cloud.z += sin(uTime*0.33 + s1*19.0)*28.0;',
-'  vec3 letter = vec3(uMark + aTarget, 0.0);',
-// letters breathe gently in depth so the glyph feels volumetric
-'  letter.z += sin(uTime*1.15 + aTarget.x*0.035 + aTarget.y*0.02)*13.0;',
-'  letter.y += sin(uTime*0.9)*3.0;',
-'  vec3 p = mix(cloud, letter, m);',
-// opening burst : everything is thrown across the screen, then rushes home
-'  vec2 cdir = vec2(cos(s1*63.0 + s3*11.0), sin(s2*57.0 + s1*7.0));',
-'  p.xy += cdir * uChaos * (260.0 + s3*620.0);',
-'  p.z  += uChaos * (s1*1100.0 - 340.0);',
-// pointer / touch repulsion
-'  vec2 d = p.xy - uTouch;',
+'  float amb = step(0.76, s3);',
+'  vec3 pos;',
+'  float hot = 0.0;',
+'  if(amb > 0.5){',
+'    pos = aStar;',
+'    pos.xy = uRes*0.5 + (pos.xy - uRes*0.5);',
+'  } else {',
+'    float st = clamp(uStage, 0.0, 3.0);',
+'    float i0 = floor(min(st, 2.0));',
+'    float f  = st - i0;',
+'    f = clamp((f - s1*0.34) / 0.66, 0.0, 1.0);',
+'    f = f*f*(3.0-2.0*f);',
+'    vec3 pDot = vec3(aQR * 0.030, 0.0);',
+'    vec3 pQR  = vec3(aQR, sin(aQR.x*0.09 + aQR.y*0.07)*6.0);',
+'    vec3 pNet = vec3(aNet, sin(uTime*0.7 + s1*30.0)*46.0);',
+'    vec3 pHR  = vec3(aHR,  sin(uTime*1.15 + aHR.x*0.035 + aHR.y*0.02)*13.0);',
+'    vec3 a = i0 < 0.5 ? pDot : (i0 < 1.5 ? pQR  : pNet);',
+'    vec3 b = i0 < 0.5 ? pQR  : (i0 < 1.5 ? pNet : pHR );',
+'    pos = mix(a, b, f);',
+'    hot = (i0 < 1.5 ? (1.0 - f) : 0.0) * step(0.5, st);',
+'  }',
+// depth + camera
+'  float persp = 520.0 / (520.0 + pos.z);',
+'  vec2 anchor = mix(uRes*0.5, uMark, uSettle);',
+'  vec2 rel = amb > 0.5 ? (pos.xy - uRes*0.5) * persp * uZoom',
+'                       : pos.xy * persp * uZoom;',
+'  float cr = cos(uRoll), sr = sin(uRoll);',
+'  rel = vec2(rel.x*cr - rel.y*sr, rel.x*sr + rel.y*cr);',
+'  vec2 sp = (amb > 0.5 ? uRes*0.5 : anchor) + rel;',
+// pointer repulsion
+'  vec2 d = sp - uTouch;',
 '  float dist = length(d);',
-'  float f = uTouchOn * smoothstep(120.0, 0.0, dist) * 46.0;',
-'  p.xy += normalize(d + 0.0001) * f;',
-'  p.z  -= f*0.6;',
-// perspective
-'  float persp = 520.0 / (520.0 + p.z);',
-'  vec2 org = mix(uRes*0.5, uMark, 1.0 - amb);',
-'  vec2 sp = (p.xy - org) * persp + org;',
-'  sp = (sp - uRes*0.5) * uZoom + uRes*0.5;',
+'  sp += normalize(d + 0.0001) * uTouchOn * smoothstep(120.0, 0.0, dist) * 44.0;',
 '  vec2 clip = vec2(sp.x/uRes.x*2.0 - 1.0, 1.0 - sp.y/uRes.y*2.0);',
 '  gl_Position = vec4(clip, 0.0, 1.0);',
-'  float size = mix(1.9, 2.9, s2) * persp * uDPR * mix(1.0, 0.66, amb);',
-'  gl_PointSize = max(1.0, size * (1.0 + m*0.35) * (1.0 + uChaos*0.9));',
-'  vDepth = persp;',
-'  vSeed  = s2;',
+'  float base = mix(1.9, 2.9, s2) * mix(1.0, 0.62, amb);',
+// close to the subject the grains are physically larger
+'  float near = mix(3.1, 1.0, clamp(uStage/2.30, 0.0, 1.0));',
+'  if(amb > 0.5) near = mix(1.6, 1.0, clamp(uStage/2.30, 0.0, 1.0));',
+'  gl_PointSize = max(1.0, base * persp * uDPR * near);',
+'  vD = persp;',
+'  vSeed = s2;',
+'  vHot = hot;',
 '}'].join('\n');
 
 var FS = [
 'precision highp float;',
-'varying float vDepth;',
+'varying float vD;',
 'varying float vSeed;',
-'uniform float uMorph;',
+'varying float vHot;',
 'void main(){',
 '  vec2 uv = gl_PointCoord - 0.5;',
 '  float r = length(uv);',
@@ -308,33 +318,69 @@ var FS = [
 '  float a = smoothstep(0.5, 0.06, r);',
 '  vec3 deep = vec3(0.16, 0.38, 0.78);',
 '  vec3 lit  = vec3(0.50, 0.86, 1.00);',
-'  vec3 col  = mix(deep, lit, clamp((vDepth-0.62)/0.55, 0.0, 1.0));',
-'  col = mix(col, vec3(1.0), pow(a, 6.0) * (0.35 + uMorph*0.45));',
-'  float glow = (0.30 + vDepth*0.55) * (0.88 + uMorph*0.32) * (0.75 + vSeed*0.35);',
+'  vec3 col  = mix(deep, lit, clamp((vD-0.62)/0.55, 0.0, 1.0));',
+'  col = mix(col, vec3(0.78,0.95,1.0), vHot*0.6);',
+'  col = mix(col, vec3(1.0), pow(a, 6.0) * 0.55);',
+'  float glow = (0.40 + vD*0.55) * (0.80 + vSeed*0.34);',
 '  gl_FragColor = vec4(col * a * glow, a * glow);',
 '}'].join('\n');
 
+/* ---------------- network lines ---------------- */
+var LVS = [
+'precision highp float;',
+'attribute vec2 aA;',
+'attribute vec2 aB;',
+'attribute float aT;',
+'uniform vec2  uRes;',
+'uniform vec2  uMark;',
+'uniform float uStage;',
+'uniform float uZoom;',
+'uniform float uRoll;',
+'uniform float uSettle;',
+'uniform float uTime;',
+'varying float vA;',
+'void main(){',
+'  vec2 pos = mix(aA, aB, aT);',
+'  vec2 rel = pos * uZoom;',
+'  float cr = cos(uRoll), sr = sin(uRoll);',
+'  rel = vec2(rel.x*cr - rel.y*sr, rel.x*sr + rel.y*cr);',
+'  vec2 sp = mix(uRes*0.5, uMark, uSettle) + rel;',
+'  gl_Position = vec4(sp.x/uRes.x*2.0 - 1.0, 1.0 - sp.y/uRes.y*2.0, 0.0, 1.0);',
+'  float near = 1.0 - clamp(abs(uStage - 2.0) / 0.72, 0.0, 1.0);',
+'  vA = near * 0.85;',
+'}'].join('\n');
+
+var LFS = [
+'precision highp float;',
+'varying float vA;',
+'void main(){ gl_FragColor = vec4(vec3(0.40, 0.70, 1.00) * vA, vA); }'].join('\n');
+
 function sh(type, src){
-  var s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s);
-  if(!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s));
-  return s;
+  var o = gl.createShader(type); gl.shaderSource(o, src); gl.compileShader(o);
+  if(!gl.getShaderParameter(o, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(o));
+  return o;
+}
+function link(vs, fs){
+  var p = gl.createProgram();
+  gl.attachShader(p, sh(gl.VERTEX_SHADER, vs));
+  gl.attachShader(p, sh(gl.FRAGMENT_SHADER, fs));
+  gl.linkProgram(p);
+  if(!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p));
+  return p;
 }
 
-/* sample the word "HR" into points, sized to the DOM mark box */
-function sampleText(w, h){
-  var c = document.createElement('canvas');
-  var S = 2;                                   // supersample for cleaner edges
+/* sample "HR" into points, sized to the DOM mark */
+function sampleHR(w, h){
+  var c = document.createElement('canvas'), S = 2;
   c.width = Math.max(8, Math.round(w*S)); c.height = Math.max(8, Math.round(h*S));
   var x = c.getContext('2d');
-  x.fillStyle = '#fff';
-  x.textAlign = 'center'; x.textBaseline = 'middle';
+  x.fillStyle = '#fff'; x.textAlign = 'center'; x.textBaseline = 'middle';
   var fs = Math.round(h*S*0.86);
   x.font = '700 ' + fs + 'px Poppins, system-ui, sans-serif';
   x.fillText('HR', c.width/2, c.height/2 + fs*0.03);
-  var d = x.getImageData(0,0,c.width,c.height).data;
-  var pts = [], step = 2;
-  for(var yy=0; yy<c.height; yy+=step){
-    for(var xx=0; xx<c.width; xx+=step){
+  var d = x.getImageData(0,0,c.width,c.height).data, pts = [];
+  for(var yy=0; yy<c.height; yy+=2){
+    for(var xx=0; xx<c.width; xx+=2){
       if(d[(yy*c.width+xx)*4+3] > 130){
         pts.push((xx/S - w/2) + (Math.random()-0.5)*1.1,
                  (yy/S - h/2) + (Math.random()-0.5)*1.1);
@@ -344,52 +390,103 @@ function sampleText(w, h){
   return pts;
 }
 
-var prog, loc = {}, buf = {}, N = 0;
-var W=0,H=0,DPR=1, markC=[0,0], t0=performance.now(), raf=null;
-var morph=0, phase=0, touch=[-9999,-9999], touchOn=0;
-var INTRO=2.6, zoom=2.6, chaos=1.0;
-function easeOutExpo(x){ return x>=1 ? 1 : 1 - Math.pow(2, -10*x); }
+var progP, progL, lp = {}, loc = {}, buf = {}, N = 0, LN = 0;
+var W=0, H=0, DPR=1, markC=[0,0], t0=performance.now(), raf=null;
+var touch=[-9999,-9999], touchOn=0;
 var markEl = document.querySelector('.hr');
+
+var INTRO = 4.2;
+var stage = 0, zoom = 6.2, roll = 0.30, settle = 0;
+function easeOutQuint(x){ return 1 - Math.pow(1-x, 5); }
+function seg(t, a, b){ return Math.max(0, Math.min(1, (t-a)/(b-a))); }
+function smooth(x){ return x*x*(3-2*x); }
 
 function build(){
   var r = markEl.getBoundingClientRect();
   var mw = Math.max(80, r.width*1.22), mh = Math.max(50, r.height*1.15);
   markC = [r.left + r.width/2, r.top + r.height/2];
 
-  var tp = sampleText(mw, mh);
-  // cap the count so mid-range phones stay at 60fps
-  var max = (W*H > 900*900) ? 26000 : 17000;
-  var total = tp.length/2, stride = Math.max(1, Math.ceil(total/max));
-  var target=[], cloud=[], seed=[];
-  for(var i=0;i<total;i+=stride){
-    target.push(tp[i*2], tp[i*2+1]);
+  var hp = sampleHR(mw, mh);
+  var max = (W*H > 900*900) ? 24000 : 15000;
+  var total = hp.length/2, stride = Math.max(1, Math.ceil(total/max));
+  var qr=[], net=[], hr=[], star=[], seed=[];
+
+  // QR geometry: the whole code spans a little wider than the HR mark
+  var QS = (mw*1.32) / QN, qOff = -(QN*QS)/2;
+  var lit = [];
+  for(var yy=0; yy<QN; yy++) for(var xx=0; xx<QN; xx++)
+    if(QR.charCodeAt(yy*QN+xx) === 49) lit.push(xx, yy);
+  var nLit = lit.length/2;
+
+  // network hubs
+  var HUB = 34, hubs = [];
+  for(var k=0; k<HUB; k++){
+    var ang = (k/HUB)*Math.PI*2 + Math.random()*0.5;
+    var rad = (0.34 + Math.pow(Math.random(),0.55)*0.66) * mw*0.98;
+    hubs.push([Math.cos(ang)*rad*1.18, Math.sin(ang)*rad*0.80]);
+  }
+
+  var i = 0;
+  for(var q=0; q<total; q+=stride, i++){
+    hr.push(hp[q*2], hp[q*2+1]);
+
+    // QR: spread particles evenly over the lit modules
+    var li = (i % nLit) * 2;
+    qr.push(qOff + (lit[li]   + 0.15 + Math.random()*0.70) * QS,
+            qOff + (lit[li+1] + 0.15 + Math.random()*0.70) * QS);
+
+    // network: cluster particles around hubs
+    var hb = hubs[i % HUB], sp = 11 + Math.random()*13, na = Math.random()*Math.PI*2;
+    var nr = Math.pow(Math.random(), 0.7) * sp;
+    net.push(hb[0] + Math.cos(na)*nr, hb[1] + Math.sin(na)*nr);
+
     var s3 = Math.random();
-    if(s3 >= 0.74){
-      // ambient dust — absolute screen coords, spread over the whole page
-      cloud.push(Math.random()*W, Math.random()*H, Math.random()*900 - 120);
-    } else {
-      // orb — stored relative to the mark so the glyph dissolves into a sphere
-      var u = Math.random()*2-1, th = Math.random()*Math.PI*2,
-          rr = Math.pow(Math.random(),0.30), sr = Math.sqrt(1-u*u), R = 68;
-      cloud.push(Math.cos(th)*sr*rr*R*1.45,
-                 Math.sin(th)*sr*rr*R,
-                 u*rr*R*1.35);
-    }
+    star.push((Math.random()*2.6-0.8)*W, (Math.random()*2.6-0.8)*H,
+              Math.pow(Math.random(),0.75)*1500 - 60);
     seed.push(Math.random(), Math.random(), s3);
   }
-  N = target.length/2;
+  N = hr.length/2;
 
-  function up(name, arr, n){
-    if(!buf[name]) buf[name] = gl.createBuffer();
-    gl.bindBuffer(gl.ARRAY_BUFFER, buf[name]);
-    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(arr), gl.STATIC_DRAW);
-    gl.enableVertexAttribArray(loc[name]);
-    gl.vertexAttribPointer(loc[name], n, gl.FLOAT, false, 0, 0);
+  // line segments between nearby hubs
+  var la=[], lb=[], lt=[];
+  for(var a1=0; a1<HUB; a1++){
+    for(var b1=a1+1; b1<HUB; b1++){
+      var dx = hubs[a1][0]-hubs[b1][0], dy = hubs[a1][1]-hubs[b1][1];
+      if(dx*dx+dy*dy < 128*128){
+        la.push(hubs[a1][0], hubs[a1][1], hubs[a1][0], hubs[a1][1]);
+        lb.push(hubs[b1][0], hubs[b1][1], hubs[b1][0], hubs[b1][1]);
+        lt.push(0, 1);
+      }
+    }
   }
-  up('aTarget', target, 2);
-  up('aCloud',  cloud,  3);
-  up('aSeed',   seed,   3);
+  LN = lt.length;
+
+  function up(prog, name, arr, n, store){
+    var L = gl.getAttribLocation(prog, name);
+    if(L < 0) return;
+    if(!buf[store]) buf[store] = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, buf[store]);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(arr), gl.STATIC_DRAW);
+    gl.enableVertexAttribArray(L);
+    gl.vertexAttribPointer(L, n, gl.FLOAT, false, 0, 0);
+    (store === 'L' ? lp : loc)[name] = L;
+  }
+  gl.useProgram(progP);
+  up(progP,'aQR',  qr,  2,'aQR');
+  up(progP,'aNet', net, 2,'aNet');
+  up(progP,'aHR',  hr,  2,'aHR');
+  up(progP,'aStar',star,3,'aStar');
+  up(progP,'aSeed',seed,3,'aSeed');
+  pBuf = {qr:buf.aQR, net:buf.aNet, hr:buf.aHR, star:buf.aStar, seed:buf.aSeed};
+
+  gl.useProgram(progL);
+  lineData = {a:la, b:lb, t:lt};
+  if(!buf.la) { buf.la = gl.createBuffer(); buf.lb = gl.createBuffer(); buf.lt = gl.createBuffer(); }
+  gl.bindBuffer(gl.ARRAY_BUFFER, buf.la); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(la), gl.STATIC_DRAW);
+  gl.bindBuffer(gl.ARRAY_BUFFER, buf.lb); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(lb), gl.STATIC_DRAW);
+  gl.bindBuffer(gl.ARRAY_BUFFER, buf.lt); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(lt), gl.STATIC_DRAW);
 }
+var pBuf = null, lineData = null;
 
 function resize(){
   DPR = Math.min(window.devicePixelRatio||1, 2);
@@ -399,60 +496,96 @@ function resize(){
   build();
 }
 
+function bindPoints(){
+  gl.useProgram(progP);
+  function b(name, store, n){
+    var L = gl.getAttribLocation(progP, name); if(L<0) return;
+    gl.bindBuffer(gl.ARRAY_BUFFER, buf[store]);
+    gl.enableVertexAttribArray(L);
+    gl.vertexAttribPointer(L, n, gl.FLOAT, false, 0, 0);
+  }
+  b('aQR','aQR',2); b('aNet','aNet',2); b('aHR','aHR',2);
+  b('aStar','aStar',3); b('aSeed','aSeed',3);
+}
+function bindLines(){
+  gl.useProgram(progL);
+  function b(name, store, n){
+    var L = gl.getAttribLocation(progL, name); if(L<0) return;
+    gl.bindBuffer(gl.ARRAY_BUFFER, buf[store]);
+    gl.enableVertexAttribArray(L);
+    gl.vertexAttribPointer(L, n, gl.FLOAT, false, 0, 0);
+  }
+  b('aA','la',2); b('aB','lb',2); b('aT','lt',1);
+}
+
+function timeline(t){
+  if(t < INTRO){
+    // ONE continuous retreat; the subject changes scale as we climb out
+    var k = easeOutQuint(Math.min(1, t/3.9));
+    zoom = 6.2 - 5.2*k;
+    roll = 0.30 * (1-k);
+    settle = smooth(seg(t, 2.55, 4.05));
+    // point -> QR -> network -> HR
+    var s;
+    if(t < 0.55)      s = 0;
+    else if(t < 1.55) s = smooth(seg(t, 0.55, 1.55));
+    else if(t < 2.45) s = 1 + smooth(seg(t, 1.55, 2.45));
+    else              s = 2 + smooth(seg(t, 2.45, 3.45));
+    stage = Math.min(3, s);
+  } else {
+    zoom += (1-zoom)*0.07; roll *= 0.9; settle += (1-settle)*0.1;
+    var ph = (t - INTRO) % 20.0;
+    var want = (ph < 15.0) ? 3 : 2;     // HR breathes, then drifts back to the network and returns
+    stage += (want - stage) * 0.022;
+  }
+}
+
 function frame(){
   var t = (performance.now()-t0)/1000;
-  // assemble, hold, scatter, repeat
-  var tgt;
-  if(t < INTRO){
-    // opening: chaos → camera pulls back → letters lock in
-    var k = Math.min(1, t/1.75);
-    zoom  = 2.6 - 1.6*easeOutExpo(k);
-    chaos = 1.0 - easeOutExpo(Math.min(1, Math.max(0, (t-0.10)/1.35)));
-    tgt   = t < 0.35 ? 0.0 : 1.0;
-    morph += (tgt - morph) * 0.055;
-  } else {
-    zoom += (1.0 - zoom)*0.08; chaos *= 0.9;
-    phase = (t - INTRO) % 18.0;
-    tgt = (phase < 13.6) ? 1.0 : 0.0;
-    morph += (tgt - morph) * (tgt > morph ? 0.022 : 0.030);
+  timeline(t);
+  gl.clear(gl.COLOR_BUFFER_BIT);
+
+  if(LN){
+    bindLines();
+    gl.uniform2f(gl.getUniformLocation(progL,'uRes'), W, H);
+    gl.uniform2f(gl.getUniformLocation(progL,'uMark'), markC[0], markC[1]);
+    gl.uniform1f(gl.getUniformLocation(progL,'uStage'), stage);
+    gl.uniform1f(gl.getUniformLocation(progL,'uZoom'), zoom);
+    gl.uniform1f(gl.getUniformLocation(progL,'uRoll'), roll);
+    gl.uniform1f(gl.getUniformLocation(progL,'uSettle'), settle);
+    gl.uniform1f(gl.getUniformLocation(progL,'uTime'), t);
+    gl.drawArrays(gl.LINES, 0, LN);
   }
 
-  gl.clear(gl.COLOR_BUFFER_BIT);
-  gl.uniform2f(loc.uRes, W, H);
-  gl.uniform2f(loc.uMark, markC[0], markC[1]);
-  gl.uniform1f(loc.uTime, t);
-  gl.uniform1f(loc.uMorph, morph);
-  gl.uniform2f(loc.uTouch, touch[0], touch[1]);
-  gl.uniform1f(loc.uTouchOn, touchOn);
-  gl.uniform1f(loc.uDPR, DPR);
-  gl.uniform1f(loc.uZoom, zoom);
-  gl.uniform1f(loc.uChaos, chaos);
+  bindPoints();
+  gl.uniform2f(gl.getUniformLocation(progP,'uRes'), W, H);
+  gl.uniform2f(gl.getUniformLocation(progP,'uMark'), markC[0], markC[1]);
+  gl.uniform1f(gl.getUniformLocation(progP,'uTime'), t);
+  gl.uniform1f(gl.getUniformLocation(progP,'uStage'), stage);
+  gl.uniform1f(gl.getUniformLocation(progP,'uZoom'), zoom);
+  gl.uniform1f(gl.getUniformLocation(progP,'uRoll'), roll);
+  gl.uniform1f(gl.getUniformLocation(progP,'uSettle'), settle);
+  gl.uniform2f(gl.getUniformLocation(progP,'uTouch'), touch[0], touch[1]);
+  gl.uniform1f(gl.getUniformLocation(progP,'uTouchOn'), touchOn);
+  gl.uniform1f(gl.getUniformLocation(progP,'uDPR'), DPR);
   gl.drawArrays(gl.POINTS, 0, N);
+
   touchOn *= 0.94;
   raf = requestAnimationFrame(frame);
 }
 
 if(gl && !reduce){
   try{
-    prog = gl.createProgram();
-    gl.attachShader(prog, sh(gl.VERTEX_SHADER, VS));
-    gl.attachShader(prog, sh(gl.FRAGMENT_SHADER, FS));
-    gl.linkProgram(prog);
-    if(!gl.getProgramParameter(prog, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(prog));
-    gl.useProgram(prog);
-    ['aTarget','aCloud','aSeed'].forEach(function(k){ loc[k] = gl.getAttribLocation(prog,k); });
-    ['uRes','uMark','uTime','uMorph','uTouch','uTouchOn','uDPR','uZoom','uChaos'].forEach(function(k){
-      loc[k] = gl.getUniformLocation(prog,k);
-    });
+    progP = link(VS, FS);
+    progL = link(LVS, LFS);
     gl.disable(gl.DEPTH_TEST);
     gl.enable(gl.BLEND);
-    gl.blendFunc(gl.SRC_ALPHA, gl.ONE);       // additive → real glow
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
     gl.clearColor(0,0,0,0);
 
-    // wait for the webfont so the sampled glyphs match the rest of the page
     var go = function(){
       document.body.classList.add('gpu');
-      resize();                                   // measure while .stage is untransformed
+      resize();
       cv.classList.add('on');
       t0 = performance.now();
       requestAnimationFrame(function(){
@@ -465,9 +598,7 @@ if(gl && !reduce){
     else go();
 
     var rt;
-    window.addEventListener('resize', function(){
-      clearTimeout(rt); rt = setTimeout(resize, 160);
-    }, {passive:true});
+    window.addEventListener('resize', function(){ clearTimeout(rt); rt = setTimeout(resize, 160); }, {passive:true});
     window.addEventListener('scroll', function(){
       var rr = markEl.getBoundingClientRect();
       markC = [rr.left + rr.width/2, rr.top + rr.height/2];
@@ -476,23 +607,19 @@ if(gl && !reduce){
       if(document.hidden){ if(raf){cancelAnimationFrame(raf); raf=null;} }
       else if(!raf){ raf = requestAnimationFrame(frame); }
     });
-    window.addEventListener('pointermove', function(e){
-      touch = [e.clientX, e.clientY]; touchOn = 1;
-    }, {passive:true});
+    window.addEventListener('pointermove', function(e){ touch=[e.clientX,e.clientY]; touchOn=1; }, {passive:true});
     window.addEventListener('touchmove', function(e){
-      var p = e.touches[0]; if(!p) return;
-      touch = [p.clientX, p.clientY]; touchOn = 1;
+      var pt = e.touches[0]; if(!pt) return; touch=[pt.clientX,pt.clientY]; touchOn=1;
     }, {passive:true});
-  }catch(err){ /* no WebGL → the CSS 3D mark stays visible */ }
+  }catch(err){ /* no WebGL -> the CSS 3D mark stays */ }
 }
 
-/* ---------- parallax tilt : gyroscope on phone, pointer on desktop ---------- */
+/* ---------- parallax tilt ---------- */
 var el = document.getElementById('tilt'), tx=0, ty=0, cx=0, cy=0, idle=0, active=false;
 function loop(){
   idle += 0.012;
   var ix = active?0:Math.sin(idle)*1.6, iy = active?0:Math.cos(idle*0.8)*1.1;
-  cx += ((tx+ix)-cx)*0.075;
-  cy += ((ty+iy)-cy)*0.075;
+  cx += ((tx+ix)-cx)*0.075; cy += ((ty+iy)-cy)*0.075;
   el.style.transform = 'rotateY('+cx.toFixed(2)+'deg) rotateX('+(-cy).toFixed(2)+'deg)';
   requestAnimationFrame(loop);
 }
