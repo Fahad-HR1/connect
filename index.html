@@ -406,7 +406,7 @@ function cardTexture(){
   x.fillStyle = g2; x.fillRect(-1.8*S,-H2,3.6*S,H2*2); x.restore();
   x.textBaseline='middle'; x.textAlign='left'; x.fillStyle='#84a9ff';
   x.font = '700 ' + (9.16*S) + 'px Poppins, system-ui, sans-serif';
-  var msg='SCAN TO SEE WHAT I BUILD', tx=19.2*S, ty=39.3*S, ls=1.44*S, i;
+  var msg='SCAN TO SEE MY WORK', tx=19.2*S, ty=39.3*S, ls=1.44*S, i;
   for(i=0;i<msg.length;i++){ x.fillText(msg[i],tx,ty); tx += x.measureText(msg[i]).width + ls; }
   var g3 = x.createLinearGradient(58*S,0,145*S,0);
   g3.addColorStop(0,'rgba(1,62,106,0)'); g3.addColorStop(0.32,'rgba(67,209,255,0.95)');
