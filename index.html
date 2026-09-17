@@ -23,11 +23,14 @@
     --bg:#000103; --ink:#eef4ff; --muted:#93a3bd; --cyan:#7fd3f5; --glow:#43d1ff;
     --line:rgba(132,169,255,.22);
   }
-  html{-webkit-text-size-adjust:100%}
+  html{-webkit-text-size-adjust:100%;overflow-x:hidden;overscroll-behavior:none;
+       width:100%;max-width:100%}
   body{
     min-height:100dvh; background:var(--bg); color:var(--ink);
     font-family:'Poppins',system-ui,-apple-system,'Segoe UI',sans-serif;
-    -webkit-font-smoothing:antialiased; position:relative; overflow-x:hidden;
+    -webkit-font-smoothing:antialiased; position:relative;
+    overflow-x:hidden; width:100%; max-width:100%;
+    touch-action:pan-y; overscroll-behavior:none;
     display:flex; flex-direction:column; align-items:center;
     padding:calc(58px + env(safe-area-inset-top,0px)) 24px calc(30px + env(safe-area-inset-bottom,0px));
     perspective:1100px;
@@ -580,9 +583,9 @@ function timeline(t){
     idle = 1 - smooth(seg(t, TRAVEL-1.5, TRAVEL+0.5)); amp = 1.15; }
   else {
     scale = S_END; speed = 0;
-    var ph = (t - INTRO) % 4.3;      // the drift itself is slow; the pause between is short
-    idle = ph < 1.5 ? smooth(ph/1.5)
-         : (ph < 3.5 ? 1 - smooth((ph-1.5)/2.0) : 0);
+    var ph = (t - INTRO) % 7.4;      // slow out, slow back, short pause between
+    idle = ph < 2.8 ? smooth(ph/2.8)
+         : (ph < 6.4 ? 1 - smooth((ph-2.8)/3.6) : 0);
     amp = 2.1;
   }
   settle = smooth(seg(t, TRAVEL-1.2, INTRO));
@@ -755,7 +758,7 @@ if(gl && !reduce){
 var el = document.getElementById('tilt'), tx=0, ty=0, cx=0, cy=0, idl=0, active=false;
 function loop(){
   idl += 0.012;
-  var ix = active?0:Math.sin(idl)*1.6, iy = active?0:Math.cos(idl*0.8)*1.1;
+  var ix = active?0:Math.sin(idl)*0.7, iy = active?0:Math.cos(idl*0.8)*0.5;
   cx += ((tx+ix)-cx)*0.075; cy += ((ty+iy)-cy)*0.075;
   el.style.transform = 'rotateY('+cx.toFixed(2)+'deg) rotateX('+(-cy).toFixed(2)+'deg)';
   requestAnimationFrame(loop);
@@ -770,8 +773,8 @@ window.addEventListener('pointermove', function(e){
 function onOrient(e){
   if(e.gamma==null && e.beta==null) return;
   active = true;
-  tx = Math.max(-12, Math.min(12, (e.gamma||0)*0.42));
-  ty = Math.max(-9,  Math.min(9,  ((e.beta||0)-45)*0.20));
+  tx = Math.max(-5.5, Math.min(5.5, (e.gamma||0)*0.20));
+  ty = Math.max(-4,   Math.min(4,   ((e.beta||0)-45)*0.10));
 }
 if(window.DeviceOrientationEvent && !reduce){
   if(typeof DeviceOrientationEvent.requestPermission === 'function'){
